@@ -11,7 +11,6 @@ from scipy.signal import windows
 import skimage.morphology as skmorph
 from scipy.ndimage import gaussian_filter
 from scipy import ndimage
-import napari
 import pyvista as pv
 from mpl_toolkits.mplot3d import Axes3D
 
