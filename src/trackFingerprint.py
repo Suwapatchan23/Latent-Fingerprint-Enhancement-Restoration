@@ -9,6 +9,11 @@ from skimage.exposure import equalize_adapthist
 from scipy.ndimage import uniform_filter
 from scipy.signal import windows
 import skimage.morphology as skmorph
+from scipy.ndimage import gaussian_filter
+from scipy import ndimage
+import napari
+import pyvista as pv
+from mpl_toolkits.mplot3d import Axes3D
 
 from utils.Normalize_Module import normalize, adjustRange
 from utils.Windowing_Module import WindowPartition2D
@@ -18,27 +23,90 @@ from utils.Fourier_Module import Fourier2D
 
 ########################### Function ######################
 
+def gradient(energy_img_list):
+    combined_segment_img = np.zeros_like(energy_img_list[0], dtype=bool)
+
+    # combined_img = np.zeros_like(energy_img_list[0])
+    for i in range(len(energy_img_list)):
+        energy_stack = np.stack([energy_img_list[(i-2)%16], energy_img_list[(i-1)%16], energy_img_list[i], energy_img_list[(i+1)%16], energy_img_list[(i+2)%16]], axis=-1)  # shape = (H, W, 3)
+        # combined_img = energy_img_list[(i-1)%8].astype(float) + energy_img_list[i].astype(float) + energy_img_list[(i+1)%8].astype(float)
+        # combined_img = normalize(combined_img)
+        # output_energy = gaussian_filter(energy_stack.astype(float), sigma=1)
+
+        # box filter to smooth first
+        size_block = (7,7,7)
+        energy_stack = uniform_filter(energy_stack.astype(np.float32), size=size_block)
+        
+        # transpose to (z, y, x)
+        energy_stack_transpose = np.transpose(energy_stack, (2, 1, 0))
+        # print(energy_stack_transpose.shape)
+
+        # divided by 8 to normalize
+        dx = ndimage.sobel(energy_stack_transpose, axis=2)  / 8.0 # x = axis 2
+        dy = ndimage.sobel(energy_stack_transpose, axis=1)  / 8.0 # y = axis 1
+        dz = ndimage.sobel(energy_stack_transpose, axis=0)  / 8.0 # z = axis 0
+
+
+
+        vectors = np.stack((dx, dy, dz), axis=-1)
+
+        # show every 4 voxels
+        step = 4  
+        sub_vectors = vectors[::step, ::step, ::step]
+        sub_shape = sub_vectors.shape[:3]
+
+       
+        z, y, x = np.meshgrid(
+            np.arange(0, energy_stack_transpose.shape[0], step),
+            np.arange(0, energy_stack_transpose.shape[1], step),
+            np.arange(0, energy_stack_transpose.shape[2], step),
+            indexing='ij'
+        )
+        points = np.stack((x, y, z), axis=-1).reshape(-1, 3)     # (N, 3)
+        vecs = sub_vectors.reshape(-1, 3)                         # (N, 3)
+
+        
+        plotter = pv.Plotter()
+        plotter.add_arrows(points, vecs, mag=1.5)  
+        plotter.show()
+
+    
+                
+
 def select_fingerprint_area(energy_img_list):
 
     combined_segment_img = np.zeros_like(energy_img_list[0], dtype=bool)
+
     # combined_img = np.zeros_like(energy_img_list[0])
     for i in range(len(energy_img_list)):
-        combined_img = energy_img_list[(i-1)%8].astype(np.float32) + energy_img_list[i].astype(np.float32) + energy_img_list[(i+1)%8].astype(np.float32)
+        energy_stack = np.stack([energy_img_list[(i-2)%16], energy_img_list[(i-1)%16], energy_img_list[i], energy_img_list[(i+1)%16], energy_img_list[(i+2)%16]], axis=-1)  # shape = (H, W, 3)
+        # combined_img = energy_img_list[(i-1)%8].astype(float) + energy_img_list[i].astype(float) + energy_img_list[(i+1)%8].astype(float)
+        # combined_img = normalize(combined_img)
+        # output_energy = gaussian_filter(energy_stack.astype(float), sigma=1)
+
+        size_block = (7,7,7)
+        output_energy = uniform_filter(energy_stack.astype(np.float32), size=size_block)
+        # grad_mag_3d = ndimage.generic_gradient_magnitude(energy_stack, ndimage.sobel)
+
+        output_2d = np.max(output_energy, axis=-1)
+        output_2d = normalize(output_2d)
         # combined_img += energy_img_list[i]
-        # plt.figure()
-        # plt.imshow(energy_img_list[(i-1)%8], cmap="hot")
-        # plt.figure()
-        # plt.imshow(energy_img_list[i], cmap="hot")
-        # plt.figure()
-        # plt.imshow(energy_img_list[(i+1)%8], cmap="hot")
+        plt.figure()
+        plt.imshow(energy_img_list[(i-1)%8], cmap="hot")
+        plt.figure()
+        plt.imshow(energy_img_list[i], cmap="hot")
+        plt.figure()
+        plt.imshow(energy_img_list[(i+1)%8], cmap="hot")
+        plt.figure()
+        plt.imshow(output_2d, cmap="hot")
         # plt.figure()
         # plt.imshow(combined_img, cmap="hot")
         # plt.show()
-        max_energy = combined_img.max()
+        max_energy = output_2d.max()
         for j in range(10, 1, -1):
             # threshold = max_energy * 0.35
             threshold = max_energy * (j/10)
-            seg_max_energy_img = np.where(combined_img > threshold, 1, 0).astype(np.uint8)
+            seg_max_energy_img = np.where(output_2d > threshold, 1, 0).astype(np.uint8)
            
 
             labeled_mask = label(seg_max_energy_img) 
@@ -154,7 +222,7 @@ def applied_watershed(energy_img_list):
         next_max_energy = next_energy.max()
 
 
-        for j in range(10, 2, -1):
+        for j in range(10, 5, -1):
 
             prev_th = (j/10) * prev_max_energy
             curr_th = (j/10) * curr_max_energy
@@ -218,10 +286,10 @@ def applied_watershed(energy_img_list):
 ###########################  Path #########################
 # input_file_path = r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename\049L3U.bmp"
 raw_files_path = glob(r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\fillteredImg/" + "*")
-input_files_path = glob(r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\sectoring_8_sectors/" + "*")
+input_files_path = glob(r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\sectoring_16_sectors/" + "*")
 output_path = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\pixel_based_segment/"
 output_path_2 = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\watershed_idea_segment/"
-output_path_3 = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\spatial_energy\watershed_segment_optimized/"
+output_path_3 = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\spatial_energy\watershed_segment_fixed/"
 temp_input = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\fillteredImg\080L8U.bmp.bmp"
 
 
@@ -269,10 +337,10 @@ for idx in range(len(raw_files_path)):
     # plt.show()
 
     # new_segment = applied_watershed(energy_img_list)
-    new_segment = select_fingerprint_area(energy_img_list)
-    fillhole_segment = fillHoles(new_segment.astype(np.float32))
-    fillhole_segment = fillhole_segment.astype(bool)
-    selected_mask = select_largest_region(fillhole_segment)
+    # new_segment = select_fingerprint_area(energy_img_list)
+    # fillhole_segment = fillHoles(new_segment.astype(np.float32))
+    # fillhole_segment = fillhole_segment.astype(bool)
+    # selected_mask = select_largest_region(fillhole_segment)
     # plt.figure()
     # plt.imshow(new_segment, cmap="gray")
     # plt.figure()
@@ -280,13 +348,13 @@ for idx in range(len(raw_files_path)):
     # plt.show()
 
     # segment_new_magnitude_img = new_segment_magnitude * raw_magnitude
-    new_output_img = selected_mask * raw_gray_img
+    # new_output_img = selected_mask * raw_gray_img
     # plt.figure()
     # plt.imshow(raw_gray_img, cmap="gray")
     # plt.figure()
     # plt.imshow(selected_mask, cmap="gray")
     # plt.show()
-    new_output_img[selected_mask == 0] = raw_gray_img.mean()
+    # new_output_img[selected_mask == 0] = raw_gray_img.mean()
 
     # plt.figure()
     # plt.imshow(segment_magnitude, cmap="gray")
@@ -303,6 +371,7 @@ for idx in range(len(raw_files_path)):
     # new_output_img = raw_fft.getOutputImage()
 
     # new_output_img = normalize(new_output_img)
+    gradient(energy_img_list)
 
     # plt.figure()
     # plt.imshow(raw_gray_img, cmap="gray")
