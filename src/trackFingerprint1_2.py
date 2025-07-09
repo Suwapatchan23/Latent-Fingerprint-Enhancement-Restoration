@@ -78,7 +78,7 @@ def select_fingerprint_area(energy_img_list):
     segment_list = []
     temp_segment_list = []
     max_energy = energy_img_arr.max()
-    threshold = max_energy * 0.4
+    threshold = max_energy * 0.2
     for i in range(len(energy_img_list)):
         segment_energy = np.where(energy_img_list[i] > threshold, energy_img_list[i], 0).astype(float)
         temp_energy = np.where(energy_img_list[i] > threshold, 1, 0).astype(float)
@@ -103,7 +103,7 @@ def select_fingerprint_area(energy_img_list):
     paired_segment_list = paired_segment_list.transpose(1, 2, 0)
     temp_segment_list = temp_segment_list.transpose(1, 2, 0)
 
-    print(paired_energy_list.shape)
+    # print(paired_energy_list.shape)
     
     ############################################ 1 st method : using library ####################################################
 
@@ -118,29 +118,49 @@ def select_fingerprint_area(energy_img_list):
     # plt.figure()
     # plt.imshow(and_vol[:,:,3], cmap="gray")
     # plt.show()
-    print(dilated_volume.shape)
+    # print(dilated_volume.shape)
 
     
     labeled, num_obj = ndimage.label(and_vol, structure=structure)
+    # filter only 2 largest components
+    component_sizes = [(label_id, np.count_nonzero(labeled == label_id)) for label_id in range(1, num_obj + 1)]
+    component_sizes.sort(key=lambda x: x[1], reverse=True)
+    candidate_components = set([label for label,_ in component_sizes[:4]])
 
 
     print("the number of connected components after dilation:", num_obj)
-    print("shape of label map:", labeled.shape)
+    filtered_mask = np.zeros_like(labeled, dtype=bool)
     plotter = pv.Plotter()
     for label_id in range(1, num_obj + 1):
+        # comdition 1
+        if label_id not in candidate_components:
+            continue
         component = (labeled == label_id)
+        # comditions 2
+        if np.count_nonzero(component) < 500:   
+            continue
+        # comditions 3
+        z_coords = np.where(component)[2]
+        z_range = z_coords.max() - z_coords.min() + 1 if z_coords.size > 0 else 0
+        if z_range < 3:
+            continue
+        
+        filtered_mask |= component
         # mask = (labeled == label_id)
         # z_coords = np.where(mask)[2]  
         # z_range = z_coords.max() - z_coords.min() + 1 if z_coords.size > 0 else 0
         # print(f"Component {label_id}: z-range = {z_range} slices")
-        if np.count_nonzero(component) < 500:   
-            continue
+
+
+        # visualization
         verts, faces, _, _ = measure.marching_cubes(component, level=0.5, spacing=(1, 1, 10))
         faces = np.hstack([[3, *f] for f in faces])
         mesh = pv.PolyData(verts, faces)
         plotter.add_mesh(mesh, color=np.random.rand(3), opacity=0.6)
-
+    plt.figure()
+    plt.imshow(filtered_mask[:,:,0], cmap="gray")
     plotter.show()
+    plt.show()
     ################################################################################################################
 
 

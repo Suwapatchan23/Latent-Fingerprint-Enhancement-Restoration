@@ -92,7 +92,7 @@ def select_fingerprint_area(energy_img_list):
 
     paired_energy_list = paired_energy_list.transpose(1, 2, 0)
 
-    print(paired_energy_list.shape)
+    # print(paired_energy_list.shape)
     
     ############################################ 1 st method : using library ####################################################
     structure = ndimage.generate_binary_structure(3, 3)  # 24-connectivity
@@ -100,7 +100,7 @@ def select_fingerprint_area(energy_img_list):
 
     filtered_mask = np.zeros_like(labeled, dtype=bool)
     print("the number of connected components:", num_obj)
-    print("shape of label map:", labeled.shape)
+
     plotter = pv.Plotter()
     for label_id in range(1, num_obj + 1):
         component = (labeled == label_id)
@@ -108,7 +108,7 @@ def select_fingerprint_area(energy_img_list):
         # conditions in z- coordinate
         z_coords = np.where(component)[2]
         z_range = z_coords.max() - z_coords.min() + 1 if z_coords.size > 0 else 0
-        if z_range < 2:
+        if z_range < 3:
             continue
 
         filtered_mask |= component
@@ -116,6 +116,7 @@ def select_fingerprint_area(energy_img_list):
         # z_coords = np.where(mask)[2]  
         # z_range = z_coords.max() - z_coords.min() + 1 if z_coords.size > 0 else 0
         # print(f"Component {label_id}: z-range = {z_range} slices")
+        
         if np.count_nonzero(component) < 500:   
             continue
         verts, faces, _, _ = measure.marching_cubes(component, level=0.5, spacing=(1, 1, 10))
