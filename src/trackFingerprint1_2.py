@@ -107,7 +107,7 @@ def select_fingerprint_area(energy_img_list):
     
     ############################################ 1 st method : using library ####################################################
 
-    structure = ndimage.generate_binary_structure(3, 3)  # 18- หรือ 26-connectivity
+    structure = ndimage.generate_binary_structure(3, 3)  # 18 , 26
     dilated_volume = ndimage.binary_dilation(paired_segment_list, structure=structure, iterations=1)
 
     and_vol = np.logical_and(dilated_volume, temp_segment_list)
@@ -115,21 +115,19 @@ def select_fingerprint_area(energy_img_list):
     # plt.imshow(temp_segment_list[:,:,3], cmap="gray")
     # plt.figure()
     # plt.imshow(dilated_volume[:,:,3], cmap="gray")
-    # plt.figure()
-    # plt.imshow(and_vol[:,:,3], cmap="gray")
-    # plt.show()
+
     # print(dilated_volume.shape)
 
-    
+
     labeled, num_obj = ndimage.label(and_vol, structure=structure)
     # filter only 2 largest components
     component_sizes = [(label_id, np.count_nonzero(labeled == label_id)) for label_id in range(1, num_obj + 1)]
     component_sizes.sort(key=lambda x: x[1], reverse=True)
     candidate_components = set([label for label,_ in component_sizes[:4]])
 
-
     print("the number of connected components after dilation:", num_obj)
     filtered_mask = np.zeros_like(labeled, dtype=bool)
+    sum_segment = np.zeros_like(filtered_mask[:,:,0], dtype=bool)
     plotter = pv.Plotter()
     for label_id in range(1, num_obj + 1):
         # comdition 1
@@ -142,8 +140,8 @@ def select_fingerprint_area(energy_img_list):
         # comditions 3
         z_coords = np.where(component)[2]
         z_range = z_coords.max() - z_coords.min() + 1 if z_coords.size > 0 else 0
-        if z_range < 3:
-            continue
+        # if z_range < 3:
+        #     continue
         
         filtered_mask |= component
         # mask = (labeled == label_id)
@@ -157,10 +155,14 @@ def select_fingerprint_area(energy_img_list):
         faces = np.hstack([[3, *f] for f in faces])
         mesh = pv.PolyData(verts, faces)
         plotter.add_mesh(mesh, color=np.random.rand(3), opacity=0.6)
-    plt.figure()
-    plt.imshow(filtered_mask[:,:,0], cmap="gray")
+    # plt.figure()
+
+    for z in range(18):
+        sum_segment += filtered_mask[:,:,z]
+    # plt.imshow(filtered_mask[:,:,0], cmap="gray")
     plotter.show()
-    plt.show()
+    return sum_segment
+    # plt.show()
     ################################################################################################################
 
 
@@ -280,7 +282,7 @@ def applied_watershed(energy_img_list):
 ###########################  Path #########################
 # input_file_path = r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename\049L3U.bmp"
 raw_files_path = glob(r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\fillteredImg/" + "*")
-input_files_path = glob(r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\sectoring_16_sectors/" + "*")
+input_files_path = glob(r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\sectoring_18_sectors/" + "*")
 output_path = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\pixel_based_segment/"
 output_path_2 = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\watershed_idea_segment/"
 output_path_3 = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\spatial_energy\watershed_segment_fixed/"
@@ -312,7 +314,13 @@ for idx in range(len(raw_files_path)):
         energy_img_list.append(energy)
 
 
-    select_fingerprint_area(energy_img_list)
+    segment = select_fingerprint_area(energy_img_list)
+
+    output_img = raw_gray_img * segment
+
+    plt.figure()
+    plt.imshow(output_img, cmap="gray")
+    plt.show()
 
 
     ################## save files #########################

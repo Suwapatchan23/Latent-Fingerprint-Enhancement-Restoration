@@ -24,19 +24,18 @@ def get_sector_mask(shape, center, r_inner, r_outer, angle_mask, angle_mask_mirr
     mask = ((R >= r_inner) & (R <= r_outer) & angle_mask(Theta)) | ((R >= r_inner) & (R <= r_outer) & angle_mask_mirror(Theta))
     return mask
 
-def mask_sector(magnitude_img, r_inner=37, r_outer=183, num_sectors=16, sector_index=0, overlap_deg = 0.0):
+def mask_sector(magnitude_img, r_inner=37, r_outer=183, num_sectors=18, sector_index=0, overlap_deg = 0.0):
 
     h, w = magnitude_img.shape
     center = (w // 2, h // 2)
 
-    overlap_radian = (overlap_deg * 2 * np.pi) / 360
+    overlap_radian = (overlap_deg * 1 * np.pi) / 180
         
-    sector_size = 2 * np.pi / num_sectors
-    start_angle = ((sector_index * sector_size) - overlap_radian - (sector_size/2)) % (2 * np.pi)
-    end_angle = (((sector_index + 1) * sector_size) + overlap_radian - (sector_size/2)) % (2 * np.pi)
+    sector_size = 1 * np.pi / num_sectors
+    start_angle = ((sector_index * sector_size)) % (2 * np.pi)
+    end_angle = (((sector_index + 1) * sector_size)) % (2 * np.pi)
 
-    
-    
+
 
     # in case start_angle > end_angle
     if start_angle < end_angle:
@@ -47,6 +46,8 @@ def mask_sector(magnitude_img, r_inner=37, r_outer=183, num_sectors=16, sector_i
     # mirror_thata
     start_mirror_angle = (start_angle + np.pi) % (2 * np.pi)
     end_mirror_angle = (end_angle + np.pi) % (2 * np.pi)
+    # print(start_angle, end_angle)
+    # print(start_mirror_angle, end_mirror_angle)
 
     # in case start_angle > end_angle for mirror_theta
     if start_mirror_angle < end_mirror_angle:
@@ -89,7 +90,7 @@ def makeDirs(input_file, output_path):
 input_file_path = r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename\056L9U.bmp"
 input_files_path = glob(r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename/" + "*")
 
-output_dir_path = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\sectoring_16_sectors/"
+output_dir_path = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\sectoring_18_sectors/"
 output_path = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\fillteredImg_pre/"
 for idx in range(len(input_files_path)):
 
@@ -164,27 +165,28 @@ for idx in range(len(input_files_path)):
 
     base_filename = os.path.basename(input_file_name).split('.')[0]
     dir_name = output_path + base_filename
-    save_img(filtered_img, dir_name)
+    # save_img(filtered_img, dir_name)
 
     ######################### Sectoring ###########################
     combined_mask = np.zeros_like(filtered_magnitude, dtype=np.float64)
     # fill numbers in index_list manually to combine sectors
     index_list = [0,1,2,3,4,5,6,9,10,11,12,13,14]
 
-    n_sectors = 16
-    overlap_deg = 10
+    n_sectors = 18
+    overlap_deg = 0
     need_combine_mask = False
 
     kernel_size = 11
     sigma = 1.5
 
     output_dir_name = makeDirs(input_file_name, output_dir_path)
-
+    # temp = filtered_magnitude.copy()
     for i in range (n_sectors):
         masked_magnitude = filtered_magnitude.copy()
         mask = mask_sector(filtered_magnitude, sector_index=i, overlap_deg=overlap_deg)
         mask = applied_gaussian(mask, kernel_size=kernel_size, sigma=sigma)
 
+        # print(i)
         if need_combine_mask:
             if (i in index_list):
                 combined_mask += mask
@@ -193,17 +195,21 @@ for idx in range(len(input_files_path)):
         # masked_freq = np.zeros_like(filtered_magnitude)
         # masked_freq[mask] = filtered_magnitude[mask]
         masked_magnitude = mask * filtered_magnitude
+
+        # temp += masked_magnitude
+
         # plt.figure()
         # plt.imshow(filtered_magnitude, cmap="hot")
         # plt.figure()
         # plt.imshow(masked_magnitude, cmap="hot")
+      
         fourier.setMagnitude(masked_magnitude)
         fourier.ifft()
         output_img = fourier.getOutputImage()
         norm_img = normalize(output_img)
         # plt.figure()
         # plt.imshow(norm_img, cmap="gray")
-        # plt.show()
+        
 
         output_dir = output_dir_name + str(i)
         save_img(norm_img, output_dir)
@@ -217,6 +223,9 @@ for idx in range(len(input_files_path)):
         # plt.imshow(norm_img, cmap="gray")
 
         # plt.show()
+    # plt.imshow(temp, cmap="hot")
+    # plt.show()
+
 
     if need_combine_mask:
         combined_magnitude = filtered_magnitude.copy()
