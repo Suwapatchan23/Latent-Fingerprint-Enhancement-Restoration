@@ -90,8 +90,8 @@ def makeDirs(input_file, output_path):
 input_file_path = r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename\056L9U.bmp"
 input_files_path = glob(r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename/" + "*")
 
-output_dir_path = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\sectoring_18_sectors/"
-output_path = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\fillteredImg_pre/"
+output_dir_path = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\sectoring_18_sectors/"
+output_path = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\fillteredImg_pre/"
 for idx in range(len(input_files_path)):
 
     ########################## Read Input Image ###################
@@ -145,8 +145,10 @@ for idx in range(len(input_files_path)):
     ########################## Bandpass Filter ##############################
     filter_size = input_img.shape
     filter_pos = (filter_size[0] // 2, filter_size[1] //2)
-    filter_center = 110
-    filter_bw = 145
+    # filter_center = 110
+    # filter_bw = 145
+    filter_center = 108
+    filter_bw = 96
     bp_filter = bandpassFilter(filter_size, filter_pos, filter_center, filter_bw, "Gaussian")
     magnitude = fourier.getMagnitude()
     # plt.figure()
@@ -155,12 +157,16 @@ for idx in range(len(input_files_path)):
     # plt.imshow(bp_filter, cmap="hot")
     # plt.show()
     filtered_magnitude = bp_filter * magnitude
-    # plt.figure()
-    # plt.imshow(filtered_magnitude, cmap="hot")
+    plt.figure()
+    plt.imshow(filtered_magnitude, cmap="hot")
+    
     fourier.setMagnitude(filtered_magnitude)
     fourier.ifft()
 
     filtered_img = fourier.getOutputImage()
+    plt.figure()
+    plt.imshow(filtered_img, cmap="gray")
+    plt.show()
     filtered_img = normalize(filtered_img)
 
     base_filename = os.path.basename(input_file_name).split('.')[0]
@@ -212,7 +218,7 @@ for idx in range(len(input_files_path)):
         
 
         output_dir = output_dir_name + str(i)
-        save_img(norm_img, output_dir)
+        # save_img(norm_img, output_dir)
 
         # plt.figure()
         # plt.imshow(mask, cmap="gray")

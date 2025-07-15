@@ -23,62 +23,12 @@ from utils.Fourier_Module import Fourier2D
 
 ########################### Function ######################
 
-def gradient(energy_img_list):
-    combined_segment_img = np.zeros_like(energy_img_list[0], dtype=bool)
-
-    # combined_img = np.zeros_like(energy_img_list[0])
-    for i in range(len(energy_img_list)):
-        energy_stack = np.stack([energy_img_list[(i-2)%16], energy_img_list[(i-1)%16], energy_img_list[i], energy_img_list[(i+1)%16], energy_img_list[(i+2)%16]], axis=-1)  # shape = (H, W, 3)
-        # combined_img = energy_img_list[(i-1)%8].astype(float) + energy_img_list[i].astype(float) + energy_img_list[(i+1)%8].astype(float)
-        # combined_img = normalize(combined_img)
-        # output_energy = gaussian_filter(energy_stack.astype(float), sigma=1)
-
-        # box filter to smooth first
-        size_block = (7,7,7)
-        energy_stack = uniform_filter(energy_stack.astype(np.float32), size=size_block)
-        
-        # transpose to (z, y, x)
-        energy_stack_transpose = np.transpose(energy_stack, (2, 1, 0))
-        # print(energy_stack_transpose.shape)
-
-        # divided by 8 to normalize
-        dx = ndimage.sobel(energy_stack_transpose, axis=2)  / 8.0 # x = axis 2
-        dy = ndimage.sobel(energy_stack_transpose, axis=1)  / 8.0 # y = axis 1
-        dz = ndimage.sobel(energy_stack_transpose, axis=0)  / 8.0 # z = axis 0
-
-
-
-        vectors = np.stack((dx, dy, dz), axis=-1)
-
-        # show every 4 voxels
-        step = 4  
-        sub_vectors = vectors[::step, ::step, ::step]
-        sub_shape = sub_vectors.shape[:3]
-
-       
-        z, y, x = np.meshgrid(
-            np.arange(0, energy_stack_transpose.shape[0], step),
-            np.arange(0, energy_stack_transpose.shape[1], step),
-            np.arange(0, energy_stack_transpose.shape[2], step),
-            indexing='ij'
-        )
-        points = np.stack((x, y, z), axis=-1).reshape(-1, 3)     # (N, 3)
-        vecs = sub_vectors.reshape(-1, 3)                         # (N, 3)
-
-        
-        plotter = pv.Plotter()
-        plotter.add_arrows(points, vecs, mag=1.5)  
-        plotter.show()
-
-    
-                
-
 def select_fingerprint_area(energy_img_list):
     energy_img_arr = np.array(energy_img_list)
     segment_list = []
     temp_segment_list = []
     max_energy = energy_img_arr.max()
-    threshold = max_energy * 0.2
+    threshold = max_energy * 0.1
     for i in range(len(energy_img_list)):
         segment_energy = np.where(energy_img_list[i] > threshold, energy_img_list[i], 0).astype(float)
         temp_energy = np.where(energy_img_list[i] > threshold, 1, 0).astype(float)
@@ -107,42 +57,37 @@ def select_fingerprint_area(energy_img_list):
     
     ############################################ 1 st method : using library ####################################################
 
-    structure = ndimage.generate_binary_structure(3, 3)  # 18 , 26
+    structure = ndimage.generate_binary_structure(3, 2)  # 26-connected
+    # structure = np.ones((3, 3, 3), dtype=bool)
+    
     dilated_volume = ndimage.binary_dilation(paired_segment_list, structure=structure, iterations=1)
 
     and_vol = np.logical_and(dilated_volume, temp_segment_list)
-    # plt.figure()
-    # plt.imshow(temp_segment_list[:,:,3], cmap="gray")
-    # plt.figure()
-    # plt.imshow(dilated_volume[:,:,3], cmap="gray")
+
 
     # print(dilated_volume.shape)
-
-
     labeled, num_obj = ndimage.label(and_vol, structure=structure)
-    # filter only 2 largest components
+    # filter only 3 largest components
     component_sizes = [(label_id, np.count_nonzero(labeled == label_id)) for label_id in range(1, num_obj + 1)]
     component_sizes.sort(key=lambda x: x[1], reverse=True)
-    candidate_components = set([label for label,_ in component_sizes[:4]])
+    candidate_components = set([label for label,_ in component_sizes[:3]])
 
-    print("the number of connected components after dilation:", num_obj)
+    print("n_components:", num_obj)
     filtered_mask = np.zeros_like(labeled, dtype=bool)
     sum_segment = np.zeros_like(filtered_mask[:,:,0], dtype=bool)
-    plotter = pv.Plotter()
+    # plotter = pv.Plotter()
+    z_ranges = []
     for label_id in range(1, num_obj + 1):
-        # comdition 1
+        # condition 1
         if label_id not in candidate_components:
             continue
         component = (labeled == label_id)
-        # comditions 2
-        if np.count_nonzero(component) < 500:   
-            continue
-        # comditions 3
+        # conditions 2
         z_coords = np.where(component)[2]
         z_range = z_coords.max() - z_coords.min() + 1 if z_coords.size > 0 else 0
-        # if z_range < 3:
-        #     continue
-        
+        z_ranges.append((label_id, z_range))
+        if (z_range < 3) or (z_range > 10):
+            continue
         filtered_mask |= component
         # mask = (labeled == label_id)
         # z_coords = np.where(mask)[2]  
@@ -151,16 +96,29 @@ def select_fingerprint_area(energy_img_list):
 
 
         # visualization
-        verts, faces, _, _ = measure.marching_cubes(component, level=0.5, spacing=(1, 1, 10))
-        faces = np.hstack([[3, *f] for f in faces])
-        mesh = pv.PolyData(verts, faces)
-        plotter.add_mesh(mesh, color=np.random.rand(3), opacity=0.6)
+        # verts, faces, _, _ = measure.marching_cubes(component, level=0.5, spacing=(1, 1, 10))
+        # faces = np.hstack([[3, *f] for f in faces])
+        # mesh = pv.PolyData(verts, faces)
+        # plotter.add_mesh(mesh, color=np.random.rand(3), opacity=0.6)
+
     # plt.figure()
 
-    for z in range(18):
-        sum_segment += filtered_mask[:,:,z]
+    deepest_label, max_z_range = max(z_ranges, key=lambda x: x[1])
+
+    deepest_component = (labeled == deepest_label)
+
+    n_sectors = 18
+    # for z in range(n_sectors):
+    #     sum_segment += filtered_mask[:,:,z]
     # plt.imshow(filtered_mask[:,:,0], cmap="gray")
-    plotter.show()
+    # visualization
+    # verts, faces, _, _ = measure.marching_cubes(deepest_component, level=0.5, spacing=(1, 1, 10))
+    # faces = np.hstack([[3, *f] for f in faces])
+    # mesh = pv.PolyData(verts, faces)
+    # plotter.add_mesh(mesh, color=np.random.rand(3), opacity=0.6)
+    # plotter.show()
+    for z in range(n_sectors):
+        sum_segment += deepest_component[:,:,z]
     return sum_segment
     # plt.show()
     ################################################################################################################
@@ -238,67 +196,26 @@ def select_largest_region(segment):
     return largest_mask 
 
 
-def applied_watershed(energy_img_list):
-
-    blank = np.zeros_like(energy_img_list[0])
-
-
-    for i in range(len(energy_img_list)):
-
-
-        prev_energy = energy_img_list[(i-1)%8]
-        curr_energy = energy_img_list[i]
-        next_energy = energy_img_list[(i+1)%8]
-
-        prev_max_energy = prev_energy.max()
-        curr_max_energy = curr_energy.max()
-        next_max_energy = next_energy.max()
-
-
-        for j in range(10, 5, -1):
-
-            prev_th = (j/10) * prev_max_energy
-            curr_th = (j/10) * curr_max_energy
-            next_th = (j/10) * next_max_energy
-
-            max_th = max([prev_th, curr_th, next_th])
-
-            prev_seg_max_energy = np.where(prev_energy > max_th, 1, 0).astype(np.uint8)   
-            curr_seg_max_energy = np.where(curr_energy > max_th, 1, 0).astype(np.uint8)
-            next_seg_max_energy = np.where(next_energy > max_th, 1, 0).astype(np.uint8)
-
-            label_prev = label(prev_seg_max_energy)
-            label_curr = label(curr_seg_max_energy)
-            label_next = label(next_seg_max_energy)
-
-            blank[prev_seg_max_energy == 1] = 1
-            blank[curr_seg_max_energy == 1] = 1
-            blank[next_seg_max_energy == 1] = 1
-
-            largest_mask = select_largest_region(blank)
-
-    return largest_mask
-
 ###########################  Path #########################
 # input_file_path = r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename\049L3U.bmp"
-raw_files_path = glob(r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\fillteredImg/" + "*")
-input_files_path = glob(r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\sectoring_18_sectors/" + "*")
-output_path = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\pixel_based_segment/"
-output_path_2 = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\watershed_idea_segment/"
-output_path_3 = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\spatial_energy\watershed_segment_fixed/"
-temp_input = r"D:\KSIP_Research\Latent\Latent Fingerprint Enhancement & Restoration\output\fillteredImg\080L8U.bmp.bmp"
-
+raw_files_path = glob(r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\fillteredImg/" + "*")
+input_files_path = glob(r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\sectoring_18_sectors/" + "*")
+output_path = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\pixel_based_segment/"
+output_path_2 = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\watershed_idea_segment/"
+output_path_3 = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\spatial_energy\watershed_segment_fixed/"
+temp_input = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\fillteredImg\080L8U.bmp.bmp"
+output_segment = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\segment\org_deepest_th_0_1/"
 
 raw_files_path.sort()
 input_files_path.sort()
 
 for idx in range(len(raw_files_path)):
 
+    print(raw_files_path[idx])
     raw_img = cv.imread(raw_files_path[idx])
     raw_gray_img = cv.cvtColor(raw_img, cv.COLOR_BGR2GRAY)
     path = glob(input_files_path[idx] + "/" + "*")
     path.sort(key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
-
 
     energy_img_list = []
     # each sectors
@@ -315,23 +232,21 @@ for idx in range(len(raw_files_path)):
 
 
     segment = select_fingerprint_area(energy_img_list)
+    fillhole_segment = fillHoles(segment.astype(np.float32))
+    largest_segment = select_largest_region(fillhole_segment)
 
-    output_img = raw_gray_img * segment
+    output_img = raw_gray_img * largest_segment
+    # clahe_img = equalize_adapthist(output_img, (32, 32), clip_limit=0.08)
+    # clahe_img = adjustRange(clahe_img, (0, 1), (0, 255)).astype(np.uint8)     # adjust range
+    output_img[largest_segment == 0] = raw_gray_img.mean()
 
-    plt.figure()
-    plt.imshow(output_img, cmap="gray")
-    plt.show()
+    # plt.figure()
+    # plt.imshow(output_img, cmap="gray")
+    # plt.show()
 
-
-    ################## save files #########################
-    base_filename = os.path.basename(raw_files_path[idx])
-    output_file_name = output_path + base_filename
-    # cv.imwrite(output_file_name, output_img)
-    # plt.imsave(output_file_name, output_img)
-    # io.imsave(output_file_name, output_img)
 
     base_filename = os.path.basename(raw_files_path[idx])
-    output_file_name = output_path_3 + base_filename
-    # cv.imwrite(output_file_name, new_output_img)
-    # plt.imsave(output_file_name, new_output_img)
-    # io.imsave(output_file_name, new_output_img)
+    output_file_name = output_segment + base_filename
+    cv.imwrite(output_file_name, output_img)
+    plt.imsave(output_file_name, output_img)
+    io.imsave(output_file_name, output_img)
