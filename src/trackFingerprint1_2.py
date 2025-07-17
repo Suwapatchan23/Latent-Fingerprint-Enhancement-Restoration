@@ -28,7 +28,7 @@ def select_fingerprint_area(energy_img_list):
     segment_list = []
     temp_segment_list = []
     max_energy = energy_img_arr.max()
-    threshold = max_energy * 0.1
+    threshold = max_energy * 0.3
     for i in range(len(energy_img_list)):
         segment_energy = np.where(energy_img_list[i] > threshold, energy_img_list[i], 0).astype(float)
         temp_energy = np.where(energy_img_list[i] > threshold, 1, 0).astype(float)
@@ -55,12 +55,12 @@ def select_fingerprint_area(energy_img_list):
 
     # print(paired_energy_list.shape)
     
-    ############################################ 1 st method : using library ####################################################
+    ################################################################################################
 
     structure = ndimage.generate_binary_structure(3, 2)  # 26-connected
     # structure = np.ones((3, 3, 3), dtype=bool)
     
-    dilated_volume = ndimage.binary_dilation(paired_segment_list, structure=structure, iterations=1)
+    dilated_volume = ndimage.binary_dilation(paired_segment_list, structure=structure, iterations=4)
 
     and_vol = np.logical_and(dilated_volume, temp_segment_list)
 
@@ -72,53 +72,91 @@ def select_fingerprint_area(energy_img_list):
     component_sizes.sort(key=lambda x: x[1], reverse=True)
     candidate_components = set([label for label,_ in component_sizes[:3]])
 
-    print("n_components:", num_obj)
     filtered_mask = np.zeros_like(labeled, dtype=bool)
     sum_segment = np.zeros_like(filtered_mask[:,:,0], dtype=bool)
-    # plotter = pv.Plotter()
+    plotter = pv.Plotter()
     z_ranges = []
+
     for label_id in range(1, num_obj + 1):
-        # condition 1
-        if label_id not in candidate_components:
+        if (label_id) not in (candidate_components):
             continue
         component = (labeled == label_id)
-        # conditions 2
+
         z_coords = np.where(component)[2]
         z_range = z_coords.max() - z_coords.min() + 1 if z_coords.size > 0 else 0
+
         z_ranges.append((label_id, z_range))
-        if (z_range < 3) or (z_range > 10):
-            continue
+        # print(z_range)
         filtered_mask |= component
+
+        # print(filtered_mask.shape)
         # mask = (labeled == label_id)
         # z_coords = np.where(mask)[2]  
         # z_range = z_coords.max() - z_coords.min() + 1 if z_coords.size > 0 else 0
         # print(f"Component {label_id}: z-range = {z_range} slices")
 
-
         # visualization
-        # verts, faces, _, _ = measure.marching_cubes(component, level=0.5, spacing=(1, 1, 10))
-        # faces = np.hstack([[3, *f] for f in faces])
-        # mesh = pv.PolyData(verts, faces)
-        # plotter.add_mesh(mesh, color=np.random.rand(3), opacity=0.6)
+        verts, faces, _, _ = measure.marching_cubes(component, level=0.5, spacing=(1, 1, 10))
+        faces = np.hstack([[3, *f] for f in faces])
+        mesh = pv.PolyData(verts, faces)
+        plotter.add_mesh(mesh, color=np.random.rand(3), opacity=0.6)
 
-    # plt.figure()
 
-    deepest_label, max_z_range = max(z_ranges, key=lambda x: x[1])
+    ############### use compactness and elongation to filter ###################
+    labeled_2, _ = ndimage.label(filtered_mask, structure=structure)
+    # print("Number of labels:", np.max(labeled_2))
+    regions = regionprops(labeled_2.astype(np.uint8))
+    best_compact = None
+    best_score = 0
 
-    deepest_component = (labeled == deepest_label)
 
+    best_elongation = None
+    best_elongation_score = float("inf")
+    # print(len(regions))
+    for region in regions:
+        volume = region.area
+        minr, minc, mind, maxr, maxc, maxd = region.bbox
+        depth = maxd - mind
+        height = maxr - minr
+        width = maxc - minc
+        bbox_volume = (maxr - minr) * (maxc - minc) * (maxd - mind)
+        bbox_sizes = [depth, height, width]
+        elongation_ratio = max(bbox_sizes) / min(bbox_sizes)
+        if volume == 0:
+            continue
+        compact_ratio = volume / bbox_volume 
+        # print(compact_ratio)
+        curr_label = region.label
+        # compact_list.append([curr_label, compact_ratio])
+        if compact_ratio > best_score:
+            best_score = compact_ratio
+            best_compact = curr_label
+
+        # print(elongation_ratio)
+        if elongation_ratio < best_elongation_score:
+            best_elongation_score = elongation_ratio
+            best_elongation = curr_label
+    # sort from higher to lower
+    # compact_list.sort(key = lambda x: x[1])
+    # # print(compact_list)
+    # compact_list.pop(0)
+    # # print(compact_list)
+
+    # labels, compact_nums = zip(*compact_list)
+    # # print(len(labels))
+
+    # filltered_components =  np.isin(labeled_2, labels)
+
+    most_compact_component = (labeled_2 == best_compact)
+    least_elongation_component = (labeled_2 == best_elongation)
     n_sectors = 18
-    # for z in range(n_sectors):
-    #     sum_segment += filtered_mask[:,:,z]
-    # plt.imshow(filtered_mask[:,:,0], cmap="gray")
-    # visualization
-    # verts, faces, _, _ = measure.marching_cubes(deepest_component, level=0.5, spacing=(1, 1, 10))
-    # faces = np.hstack([[3, *f] for f in faces])
-    # mesh = pv.PolyData(verts, faces)
-    # plotter.add_mesh(mesh, color=np.random.rand(3), opacity=0.6)
-    # plotter.show()
     for z in range(n_sectors):
-        sum_segment += deepest_component[:,:,z]
+        sum_segment += filtered_mask[:,:,z]
+    # for z in range(n_sectors):
+    #     sum_segment += most_compact_component[:,:,z]
+    # for z in range(n_sectors):
+    #     sum_segment += least_elongation_component[:,:,z]
+    plotter.show()
     return sum_segment
     # plt.show()
     ################################################################################################################
@@ -204,7 +242,7 @@ output_path = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restorati
 output_path_2 = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\watershed_idea_segment/"
 output_path_3 = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\spatial_energy\watershed_segment_fixed/"
 temp_input = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\fillteredImg\080L8U.bmp.bmp"
-output_segment = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\segment\org_deepest_th_0_1/"
+output_segment = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\segment\org_th_0_3/"
 
 raw_files_path.sort()
 input_files_path.sort()
@@ -240,13 +278,13 @@ for idx in range(len(raw_files_path)):
     # clahe_img = adjustRange(clahe_img, (0, 1), (0, 255)).astype(np.uint8)     # adjust range
     output_img[largest_segment == 0] = raw_gray_img.mean()
 
-    # plt.figure()
-    # plt.imshow(output_img, cmap="gray")
-    # plt.show()
+    plt.figure()
+    plt.imshow(output_img, cmap="gray")
+    plt.show()
 
 
     base_filename = os.path.basename(raw_files_path[idx])
     output_file_name = output_segment + base_filename
-    cv.imwrite(output_file_name, output_img)
-    plt.imsave(output_file_name, output_img)
-    io.imsave(output_file_name, output_img)
+    # cv.imwrite(output_file_name, output_img)
+    # plt.imsave(output_file_name, output_img)
+    # io.imsave(output_file_name, output_img)
