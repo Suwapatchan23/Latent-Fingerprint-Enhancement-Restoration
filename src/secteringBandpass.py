@@ -206,8 +206,8 @@ for idx in range(len(input_files_path)):
 
         # plt.figure()
         # plt.imshow(filtered_magnitude, cmap="hot")
-        # plt.figure()
-        # plt.imshow(masked_magnitude, cmap="hot")
+        plt.figure()
+        plt.imshow(masked_magnitude, cmap="hot")
       
         fourier.setMagnitude(masked_magnitude)
         fourier.ifft()
@@ -228,7 +228,7 @@ for idx in range(len(input_files_path)):
         # plt.figure()
         # plt.imshow(norm_img, cmap="gray")
 
-        # plt.show()
+        plt.show()
     # plt.imshow(temp, cmap="hot")
     # plt.show()
 

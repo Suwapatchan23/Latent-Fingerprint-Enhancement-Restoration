@@ -14,6 +14,7 @@ from scipy import ndimage
 import pyvista as pv
 from mpl_toolkits.mplot3d import Axes3D
 from skimage import measure
+from skimage.color import label2rgb
 
 from utils.Normalize_Module import normalize, adjustRange
 from utils.Windowing_Module import WindowPartition2D
@@ -23,15 +24,20 @@ from utils.Fourier_Module import Fourier2D
 
 ########################### Function ######################
 
-def select_fingerprint_area(energy_img_list):
+def select_fingerprint_area(energy_img_list, th):
+    th = round(th, 2)
     energy_img_arr = np.array(energy_img_list)
     segment_list = []
     temp_segment_list = []
     max_energy = energy_img_arr.max()
-    threshold = max_energy * 0.3
+    print(th)
+    threshold = max_energy * th
+    # print(threshold)
     for i in range(len(energy_img_list)):
         segment_energy = np.where(energy_img_list[i] > threshold, energy_img_list[i], 0).astype(float)
         temp_energy = np.where(energy_img_list[i] > threshold, 1, 0).astype(float)
+        # plt.imshow(temp_energy, cmap="gray")
+        # plt.show()
         segment_list.append(segment_energy)
         temp_segment_list.append(temp_energy)
         # plt.imshow(temp_energy, cmap="gray")
@@ -43,6 +49,8 @@ def select_fingerprint_area(energy_img_list):
         paired_energy_list.append(paired_energy)
         binary_volume = np.where(paired_energy == 0, 0, 1)
         paired_segment_list.append(binary_volume)
+        # plt.imshow(binary_volume, cmap="gray")
+        # plt.show()
     
     paired_energy_list = np.array(paired_energy_list)
     paired_segment_list = np.array(paired_segment_list)
@@ -59,10 +67,15 @@ def select_fingerprint_area(energy_img_list):
 
     structure = ndimage.generate_binary_structure(3, 2)  # 26-connected
     # structure = np.ones((3, 3, 3), dtype=bool)
-    
-    dilated_volume = ndimage.binary_dilation(paired_segment_list, structure=structure, iterations=4)
-
+    n_iterations = 5
+    dilated_volume = ndimage.binary_dilation(paired_segment_list, structure=structure, iterations=n_iterations)
+    # for j in range(18):
+    #     # plt.imshow(dilated_volume[:,:,j], cmap="gray")
+    #     # plt.show()
     and_vol = np.logical_and(dilated_volume, temp_segment_list)
+    # for j in range(18):
+        # plt.imshow(and_vol[:,:,j], cmap="gray")
+        # plt.show()
 
 
     # print(dilated_volume.shape)
@@ -78,12 +91,16 @@ def select_fingerprint_area(energy_img_list):
     z_ranges = []
 
     for label_id in range(1, num_obj + 1):
-        if (label_id) not in (candidate_components):
-            continue
+        # 1 st condition
+        # if (label_id) not in (candidate_components):
+        #     continue
         component = (labeled == label_id)
 
         z_coords = np.where(component)[2]
         z_range = z_coords.max() - z_coords.min() + 1 if z_coords.size > 0 else 0
+
+        # if (z_range < 4):
+        #     continue
 
         z_ranges.append((label_id, z_range))
         # print(z_range)
@@ -96,10 +113,10 @@ def select_fingerprint_area(energy_img_list):
         # print(f"Component {label_id}: z-range = {z_range} slices")
 
         # visualization
-        verts, faces, _, _ = measure.marching_cubes(component, level=0.5, spacing=(1, 1, 10))
-        faces = np.hstack([[3, *f] for f in faces])
-        mesh = pv.PolyData(verts, faces)
-        plotter.add_mesh(mesh, color=np.random.rand(3), opacity=0.6)
+        # verts, faces, _, _ = measure.marching_cubes(component, level=0.5, spacing=(1, 1, 10))
+        # faces = np.hstack([[3, *f] for f in faces])
+        # mesh = pv.PolyData(verts, faces)
+        # plotter.add_mesh(mesh, color=np.random.rand(3), opacity=0.6)
 
 
     ############### use compactness and elongation to filter ###################
@@ -109,7 +126,7 @@ def select_fingerprint_area(energy_img_list):
     best_compact = None
     best_score = 0
 
-
+    # 2 nd condition
     best_elongation = None
     best_elongation_score = float("inf")
     # print(len(regions))
@@ -136,6 +153,7 @@ def select_fingerprint_area(energy_img_list):
         if elongation_ratio < best_elongation_score:
             best_elongation_score = elongation_ratio
             best_elongation = curr_label
+
     # sort from higher to lower
     # compact_list.sort(key = lambda x: x[1])
     # # print(compact_list)
@@ -156,7 +174,7 @@ def select_fingerprint_area(energy_img_list):
     #     sum_segment += most_compact_component[:,:,z]
     # for z in range(n_sectors):
     #     sum_segment += least_elongation_component[:,:,z]
-    plotter.show()
+    # plotter.show()
     return sum_segment
     # plt.show()
     ################################################################################################################
@@ -250,10 +268,16 @@ input_files_path.sort()
 for idx in range(len(raw_files_path)):
 
     print(raw_files_path[idx])
-    raw_img = cv.imread(raw_files_path[idx])
+    # raw_img = cv.imread(raw_files_path[idx])
+    # raw_gray_img = cv.cvtColor(raw_img, cv.COLOR_BGR2GRAY)
+
+    raw_img = cv.imread(r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename\002L3U.bmp")
     raw_gray_img = cv.cvtColor(raw_img, cv.COLOR_BGR2GRAY)
-    path = glob(input_files_path[idx] + "/" + "*")
-    path.sort(key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
+
+    # path = glob(input_files_path[idx] + "/" + "*")
+    # path.sort(key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
+
+    path = glob(r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\sectoring_18_sectors\002L3U" + "/" + "*")
 
     energy_img_list = []
     # each sectors
@@ -268,8 +292,17 @@ for idx in range(len(raw_files_path)):
 
         energy_img_list.append(energy)
 
+    for th in np.arange(0.9, 0.0, -0.05):
+        segment = select_fingerprint_area(energy_img_list, th=th)
+        labeled, num_labeled = ndimage.label(segment)
+        # plt.imshow(labeled)
+        # plt.show()
+        overlay = label2rgb(labeled, image=raw_img, bg_label=0, alpha=0.4)
+        plt.imshow(overlay)
+        # plt.show()
+        plt.pause(0.05)
 
-    segment = select_fingerprint_area(energy_img_list)
+
     fillhole_segment = fillHoles(segment.astype(np.float32))
     largest_segment = select_largest_region(fillhole_segment)
 
@@ -278,9 +311,9 @@ for idx in range(len(raw_files_path)):
     # clahe_img = adjustRange(clahe_img, (0, 1), (0, 255)).astype(np.uint8)     # adjust range
     output_img[largest_segment == 0] = raw_gray_img.mean()
 
-    plt.figure()
-    plt.imshow(output_img, cmap="gray")
-    plt.show()
+    # plt.figure()
+    # plt.imshow(output_img, cmap="gray")
+    # plt.show()
 
 
     base_filename = os.path.basename(raw_files_path[idx])
