@@ -30,7 +30,7 @@ def select_fingerprint_area(energy_img_list, th):
     segment_list = []
     temp_segment_list = []
     max_energy = energy_img_arr.max()
-    print(th)
+    # print(th)
     threshold = max_energy * th
     # print(threshold)
     for i in range(len(energy_img_list)):
@@ -77,13 +77,8 @@ def select_fingerprint_area(energy_img_list, th):
         # plt.imshow(and_vol[:,:,j], cmap="gray")
         # plt.show()
 
-
     # print(dilated_volume.shape)
     labeled, num_obj = ndimage.label(and_vol, structure=structure)
-    # filter only 3 largest components
-    component_sizes = [(label_id, np.count_nonzero(labeled == label_id)) for label_id in range(1, num_obj + 1)]
-    component_sizes.sort(key=lambda x: x[1], reverse=True)
-    candidate_components = set([label for label,_ in component_sizes[:3]])
 
     filtered_mask = np.zeros_like(labeled, dtype=bool)
     sum_segment = np.zeros_like(filtered_mask[:,:,0], dtype=bool)
@@ -91,9 +86,7 @@ def select_fingerprint_area(energy_img_list, th):
     z_ranges = []
 
     for label_id in range(1, num_obj + 1):
-        # 1 st condition
-        # if (label_id) not in (candidate_components):
-        #     continue
+
         component = (labeled == label_id)
 
         z_coords = np.where(component)[2]
@@ -251,6 +244,113 @@ def select_largest_region(segment):
 
     return largest_mask 
 
+def compare_segments(segment1, segment2):
+
+    segment1_area = np.count_nonzero(segment1)
+
+    segment2_area = np.count_nonzero(segment2)
+
+    diff = np.abs(segment2_area - segment1_area)
+
+    return diff
+
+def normalize_feature(values, eps=1e-8):
+    min_val = np.min(values)
+    max_val = np.max(values)
+    return [(v - min_val) / (max_val - min_val + eps) for v in values]
+
+def select_fingerprint_region(segment, input_img):
+    labeled_mask = label(segment) 
+    regions = regionprops(labeled_mask)
+    fingerprint_mask = np.zeros_like(segment, dtype=bool)
+    max_variance_ratio = 0
+    min_compactness_ratio = float("inf")
+    max_edge_density = 0
+    num_obj = len(regions)
+
+    # filter only 3 largest components
+    component_sizes = [(label_id, np.count_nonzero(labeled_mask == label_id)) for label_id in range(1, num_obj + 1)]
+    component_sizes.sort(key=lambda x: x[1], reverse=True)
+    candidate_components = set([label for label,_ in component_sizes[:3]])
+
+    scores = []
+    variances_list = []
+    edges_list = []
+    compactness_list = []
+    label_list = []
+    area_list = []
+
+    for i in range(num_obj):
+        curr_label = regions[i]
+        if (curr_label.label) not in (candidate_components):
+            continue
+        curr_segment = np.zeros_like(segment, dtype=bool)
+        curr_segment[labeled_mask == curr_label.label] = 1
+        mask_img = input_img[curr_segment]
+        area = curr_label.area
+        perimeter = curr_label.perimeter
+        plt.imshow(curr_segment, cmap="gray")
+        plt.show()
+        # print(np.var(mask_img))
+        variance = np.var(mask_img)
+        variance_ratio = variance / (curr_label.area)
+        compactness = (perimeter ** 2) / area
+        edges = cv.Canny(mask_img, 50, 150)
+        edge_density = np.count_nonzero(edges) / area
+
+        variances_list.append(variance_ratio)
+        edges_list.append(edge_density)
+        compactness_list.append(compactness)
+        area_list.append(area)
+        label_list.append(curr_label)
+        # print(variance)
+        # print(f"variance_ratio = {variance_ratio}")
+        # print(f"compactness = {compactness}")
+        # print(f"edge_density = {edge_density}")
+        # print(f"area = {area}")
+
+        # score = 0.5 * variance_ratio + 1.0 * compactness + 1.5 * edge_density
+        # scores.append([score, curr_label])
+
+        # if variance_ratio > max_variance_ratio:
+        #     max_variance_ratio = variance_ratio
+        #     fingerprint_label = curr_label
+        # if compactness < min_compactness_ratio:
+        #     min_compactness_ratio = compactness
+        #     fingerprint_label = curr_label
+            # print(max_variance_ratio)
+        # if edge_density > max_edge_density:
+        #     max_edge_density = edge_density
+        #     fingerprint_label = curr_label
+
+    norm_variance = normalize_feature(variances_list)
+    print(f"norm_variance = {norm_variance}")
+    norm_edge = normalize_feature(edges_list)
+    print(f"norm_edge = {norm_edge}")
+    norm_compact = normalize_feature(compactness_list)
+    print(f"norm_compact = {norm_compact}")
+    norm_area = normalize_feature(area_list)
+    print(f"norm_area = {norm_area}")
+
+    norm_compact = [1 - c for c in norm_compact]
+    
+    scores = []
+    for i in range(len(variances_list)):
+
+        score = norm_variance[i] + norm_area[i] + norm_compact[i] + norm_edge[i]
+        scores.append((score, label_list[i]))
+
+    scores.sort(key= lambda x: x[0], reverse=True)
+    top_score, fingerprint_label = scores[0]
+
+    print(scores)
+
+    fingerprint_mask[labeled_mask == fingerprint_label.label] = 1
+        
+
+    return fingerprint_mask
+
+
 
 ###########################  Path #########################
 # input_file_path = r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename\049L3U.bmp"
@@ -271,18 +371,20 @@ for idx in range(len(raw_files_path)):
     # raw_img = cv.imread(raw_files_path[idx])
     # raw_gray_img = cv.cvtColor(raw_img, cv.COLOR_BGR2GRAY)
 
-    raw_img = cv.imread(r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename\002L3U.bmp")
+    # raw_img = cv.imread(r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename\002L3U.bmp")
+    raw_img = cv.imread(r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\fillteredImg\003L8U.bmp")
     raw_gray_img = cv.cvtColor(raw_img, cv.COLOR_BGR2GRAY)
 
     # path = glob(input_files_path[idx] + "/" + "*")
     # path.sort(key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
 
-    path = glob(r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\sectoring_18_sectors\002L3U" + "/" + "*")
+    path = glob(r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\sectoring_18_sectors\003L8U" + "/" + "*")
+    path.sort(key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
 
     energy_img_list = []
     # each sectors
     for i in range(len(path)):
-
+        # print(path[i])
         input_img = cv.imread(path[i])
         gray_img = cv.cvtColor(input_img, cv.COLOR_BGR2GRAY)
 
@@ -292,28 +394,52 @@ for idx in range(len(raw_files_path)):
 
         energy_img_list.append(energy)
 
+    segments = []
     for th in np.arange(0.9, 0.0, -0.05):
         segment = select_fingerprint_area(energy_img_list, th=th)
-        labeled, num_labeled = ndimage.label(segment)
-        # plt.imshow(labeled)
-        # plt.show()
-        overlay = label2rgb(labeled, image=raw_img, bg_label=0, alpha=0.4)
-        plt.imshow(overlay)
-        # plt.show()
-        plt.pause(0.05)
+        segments.append(segment)
+        # labeled, num_labeled = ndimage.label(segment)
+        # # plt.imshow(labeled)
+        # # plt.show()
+        # overlay = label2rgb(labeled, image=raw_img, bg_label=0, alpha=0.4)
+        # plt.imshow(overlay)
+        # # plt.show()
+        # plt.pause(0.05)
+    
+    differences = []
+    n = len(segments)
+    for i in range(n-1):
+        seg1 = segments[i]
+        seg2 = segments[(i + 1)]  
+        diff = compare_segments(seg1, seg2)  
+        differences.append(diff)
+        # first index (0) is the difference between index 0 and index 1
 
+    max_diff = max(differences)
+    idx_max_diff = differences.index(max_diff)
 
-    fillhole_segment = fillHoles(segment.astype(np.float32))
-    largest_segment = select_largest_region(fillhole_segment)
+    # print(max_diff, idx_max_diff)
+    # plt.figure()
+    # plt.imshow(segments[idx_max_diff], cmap="gray")
+    # plt.figure()
+    # plt.imshow(segments[idx_max_diff+1], cmap="gray")
 
-    output_img = raw_gray_img * largest_segment
+    selected_segment = segments[idx_max_diff]
+        
+    fillhole_segment = fillHoles(selected_segment.astype(np.float32))
+    # plt.figure()
+    # plt.imshow(fillhole_segment, cmap="gray")
+    # largest_segment = select_largest_region(fillhole_segment)
+    fingerprint_segment = select_fingerprint_region(fillhole_segment, raw_gray_img)
+
+    output_img = raw_gray_img * fingerprint_segment
     # clahe_img = equalize_adapthist(output_img, (32, 32), clip_limit=0.08)
     # clahe_img = adjustRange(clahe_img, (0, 1), (0, 255)).astype(np.uint8)     # adjust range
-    output_img[largest_segment == 0] = raw_gray_img.mean()
+    output_img[fingerprint_segment == 0] = raw_gray_img.mean()
 
-    # plt.figure()
-    # plt.imshow(output_img, cmap="gray")
-    # plt.show()
+    plt.figure()
+    plt.imshow(output_img, cmap="gray")
+    plt.show()
 
 
     base_filename = os.path.basename(raw_files_path[idx])
