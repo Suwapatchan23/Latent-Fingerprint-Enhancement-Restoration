@@ -113,53 +113,53 @@ def select_fingerprint_area(energy_img_list, th):
 
 
     ############### use compactness and elongation to filter ###################
-    labeled_2, _ = ndimage.label(filtered_mask, structure=structure)
-    # print("Number of labels:", np.max(labeled_2))
-    regions = regionprops(labeled_2.astype(np.uint8))
-    best_compact = None
-    best_score = 0
+    # labeled_2, _ = ndimage.label(filtered_mask, structure=structure)
+    # # print("Number of labels:", np.max(labeled_2))
+    # regions = regionprops(labeled_2.astype(np.uint8))
+    # best_compact = None
+    # best_score = 0
 
-    # 2 nd condition
-    best_elongation = None
-    best_elongation_score = float("inf")
-    # print(len(regions))
-    for region in regions:
-        volume = region.area
-        minr, minc, mind, maxr, maxc, maxd = region.bbox
-        depth = maxd - mind
-        height = maxr - minr
-        width = maxc - minc
-        bbox_volume = (maxr - minr) * (maxc - minc) * (maxd - mind)
-        bbox_sizes = [depth, height, width]
-        elongation_ratio = max(bbox_sizes) / min(bbox_sizes)
-        if volume == 0:
-            continue
-        compact_ratio = volume / bbox_volume 
-        # print(compact_ratio)
-        curr_label = region.label
-        # compact_list.append([curr_label, compact_ratio])
-        if compact_ratio > best_score:
-            best_score = compact_ratio
-            best_compact = curr_label
+    # # 2 nd condition
+    # best_elongation = None
+    # best_elongation_score = float("inf")
+    # # print(len(regions))
+    # for region in regions:
+    #     volume = region.area
+    #     minr, minc, mind, maxr, maxc, maxd = region.bbox
+    #     depth = maxd - mind
+    #     height = maxr - minr
+    #     width = maxc - minc
+    #     bbox_volume = (maxr - minr) * (maxc - minc) * (maxd - mind)
+    #     bbox_sizes = [depth, height, width]
+    #     elongation_ratio = max(bbox_sizes) / min(bbox_sizes)
+    #     if volume == 0:
+    #         continue
+    #     compact_ratio = volume / bbox_volume 
+    #     # print(compact_ratio)
+    #     curr_label = region.label
+    #     # compact_list.append([curr_label, compact_ratio])
+    #     if compact_ratio > best_score:
+    #         best_score = compact_ratio
+    #         best_compact = curr_label
 
-        # print(elongation_ratio)
-        if elongation_ratio < best_elongation_score:
-            best_elongation_score = elongation_ratio
-            best_elongation = curr_label
+    #     # print(elongation_ratio)
+    #     if elongation_ratio < best_elongation_score:
+    #         best_elongation_score = elongation_ratio
+    #         best_elongation = curr_label
 
-    # sort from higher to lower
-    # compact_list.sort(key = lambda x: x[1])
-    # # print(compact_list)
-    # compact_list.pop(0)
-    # # print(compact_list)
+    # # sort from higher to lower
+    # # compact_list.sort(key = lambda x: x[1])
+    # # # print(compact_list)
+    # # compact_list.pop(0)
+    # # # print(compact_list)
 
-    # labels, compact_nums = zip(*compact_list)
-    # # print(len(labels))
+    # # labels, compact_nums = zip(*compact_list)
+    # # # print(len(labels))
 
-    # filltered_components =  np.isin(labeled_2, labels)
+    # # filltered_components =  np.isin(labeled_2, labels)
 
-    most_compact_component = (labeled_2 == best_compact)
-    least_elongation_component = (labeled_2 == best_elongation)
+    # most_compact_component = (labeled_2 == best_compact)
+    # least_elongation_component = (labeled_2 == best_elongation)
     n_sectors = 18
     for z in range(n_sectors):
         sum_segment += filtered_mask[:,:,z]
@@ -263,9 +263,7 @@ def select_fingerprint_region(segment, input_img):
     labeled_mask = label(segment) 
     regions = regionprops(labeled_mask)
     fingerprint_mask = np.zeros_like(segment, dtype=bool)
-    max_variance_ratio = 0
-    min_compactness_ratio = float("inf")
-    max_edge_density = 0
+
     num_obj = len(regions)
 
     # filter only 3 largest components
@@ -279,11 +277,15 @@ def select_fingerprint_region(segment, input_img):
     compactness_list = []
     label_list = []
     area_list = []
+    elongation_list = []
 
     for i in range(num_obj):
         curr_label = regions[i]
         if (curr_label.label) not in (candidate_components):
             continue
+        if (curr_label.area) < 13000:
+            continue
+        print(curr_label.area)
         curr_segment = np.zeros_like(segment, dtype=bool)
         curr_segment[labeled_mask == curr_label.label] = 1
         mask_img = input_img[curr_segment]
@@ -297,11 +299,17 @@ def select_fingerprint_region(segment, input_img):
         compactness = (perimeter ** 2) / area
         edges = cv.Canny(mask_img, 50, 150)
         edge_density = np.count_nonzero(edges) / area
+        minr, minc, maxr, maxc = curr_label.bbox
+        height = maxr - minr
+        width = maxc - minc
+        bbox_sizes = [height, width]
+        elongation_ratio = max(bbox_sizes) / min(bbox_sizes)
 
-        variances_list.append(variance_ratio)
-        edges_list.append(edge_density)
-        compactness_list.append(compactness)
-        area_list.append(area)
+        variances_list.append(variance)
+        # edges_list.append(edge_density)
+        # compactness_list.append(compactness)
+        # area_list.append(area)
+        elongation_list.append(elongation_ratio)
         label_list.append(curr_label)
         # print(variance)
         # print(f"variance_ratio = {variance_ratio}")
@@ -325,19 +333,23 @@ def select_fingerprint_region(segment, input_img):
 
     norm_variance = normalize_feature(variances_list)
     print(f"norm_variance = {norm_variance}")
-    norm_edge = normalize_feature(edges_list)
-    print(f"norm_edge = {norm_edge}")
-    norm_compact = normalize_feature(compactness_list)
-    print(f"norm_compact = {norm_compact}")
-    norm_area = normalize_feature(area_list)
-    print(f"norm_area = {norm_area}")
+    # norm_edge = normalize_feature(edges_list)
+    # print(f"norm_edge = {norm_edge}")
+    # norm_compact = normalize_feature(compactness_list)
+    # print(f"norm_compact = {norm_compact}")
+    norm_elongation = normalize_feature(elongation_list)
+    print(f"norm_elongation = {norm_elongation}")
+    # norm_area = normalize_feature(area_list)
+    # print(f"norm_area = {norm_area}")
 
-    norm_compact = [1 - c for c in norm_compact]
+    # norm_compact = [1 - c for c in norm_compact]
+
+    norm_elongation = [1 - c for c in norm_elongation]
     
     scores = []
     for i in range(len(variances_list)):
 
-        score = norm_variance[i] + norm_area[i] + norm_compact[i] + norm_edge[i]
+        score = norm_variance[i] + norm_elongation[i]
         scores.append((score, label_list[i]))
 
     scores.sort(key= lambda x: x[0], reverse=True)
@@ -368,18 +380,18 @@ input_files_path.sort()
 for idx in range(len(raw_files_path)):
 
     print(raw_files_path[idx])
-    # raw_img = cv.imread(raw_files_path[idx])
-    # raw_gray_img = cv.cvtColor(raw_img, cv.COLOR_BGR2GRAY)
-
-    # raw_img = cv.imread(r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename\002L3U.bmp")
-    raw_img = cv.imread(r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\fillteredImg\003L8U.bmp")
+    raw_img = cv.imread(raw_files_path[idx])
     raw_gray_img = cv.cvtColor(raw_img, cv.COLOR_BGR2GRAY)
 
-    # path = glob(input_files_path[idx] + "/" + "*")
-    # path.sort(key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
+    # raw_img = cv.imread(r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename\002L3U.bmp")
+    # raw_img = cv.imread(r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\fillteredImg\003L8U.bmp")
+    # raw_gray_img = cv.cvtColor(raw_img, cv.COLOR_BGR2GRAY)
 
-    path = glob(r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\sectoring_18_sectors\003L8U" + "/" + "*")
+    path = glob(input_files_path[idx] + "/" + "*")
     path.sort(key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
+
+    # path = glob(r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\sectoring_18_sectors\003L8U" + "/" + "*")
+    # path.sort(key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
 
     energy_img_list = []
     # each sectors
@@ -417,7 +429,7 @@ for idx in range(len(raw_files_path)):
 
     max_diff = max(differences)
     idx_max_diff = differences.index(max_diff)
-
+    print(f"threshold = {round(0.9 - idx_max_diff * 0.05, 1)}")
     # print(max_diff, idx_max_diff)
     # plt.figure()
     # plt.imshow(segments[idx_max_diff], cmap="gray")
