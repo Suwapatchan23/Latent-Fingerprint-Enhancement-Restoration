@@ -15,6 +15,8 @@ import pyvista as pv
 from mpl_toolkits.mplot3d import Axes3D
 from skimage import measure
 from skimage.color import label2rgb
+from scipy.signal import convolve2d, windows
+from scipy.ndimage import binary_dilation
 
 from utils.Normalize_Module import normalize, adjustRange
 from utils.Windowing_Module import WindowPartition2D
@@ -23,6 +25,30 @@ from utils.Fourier_Module import Fourier2D
 
 
 ########################### Function ######################
+def dilate3D(mask, radius):
+    """
+    input:
+        mask = mask binary image
+        radius = radius from center of voxel
+    return dilated image in 3D and structure
+    """
+    assert mask.ndim == 3
+    mask = mask.astype(bool)
+    padded = np.pad(mask, radius, mode='constant', constant_values=False)
+    dilated = np.zeros_like(padded, dtype=bool)
+
+    # loop z --> y --> x from -radius to radius +1 if radius is 1 --> (-1, 2) (3x3)
+    for dz in range(-radius, radius+1):
+        for dy in range(-radius, radius+1):
+            for dx in range(-radius, radius+1):
+                shifted = np.roll(padded, shift=(dz, dy, dx), axis=(0,1,2))
+                dilated |= shifted
+
+    
+    slices = tuple(slice(radius, -radius) for _ in range(3))
+
+    return dilated[slices]
+
 
 def select_fingerprint_area(energy_img_list, th):
     th = round(th, 2)
@@ -64,20 +90,20 @@ def select_fingerprint_area(energy_img_list, th):
     # print(paired_energy_list.shape)
     
     ################################################################################################
-
-    structure = ndimage.generate_binary_structure(3, 2)  # 26-connected
-    # structure = np.ones((3, 3, 3), dtype=bool)
-    n_iterations = 5
-    dilated_volume = ndimage.binary_dilation(paired_segment_list, structure=structure, iterations=n_iterations)
+    radius = 1
+    size = 3
+    dilated_volume = dilate3D(paired_segment_list, radius=radius)
     # for j in range(18):
-    #     # plt.imshow(dilated_volume[:,:,j], cmap="gray")
-    #     # plt.show()
+        # display_grid_image(dilated_volume[:,:,j], block_size=33)
+        # plt.imshow(dilated_volume[:,:,j], cmap="gray")
+        # plt.show()
     and_vol = np.logical_and(dilated_volume, temp_segment_list)
     # for j in range(18):
         # plt.imshow(and_vol[:,:,j], cmap="gray")
         # plt.show()
-
     # print(dilated_volume.shape)
+    
+    structure = np.ones((size, size, size), dtype=bool)
     labeled, num_obj = ndimage.label(and_vol, structure=structure)
 
     filtered_mask = np.zeros_like(labeled, dtype=bool)
@@ -88,22 +114,11 @@ def select_fingerprint_area(energy_img_list, th):
     for label_id in range(1, num_obj + 1):
 
         component = (labeled == label_id)
-
         z_coords = np.where(component)[2]
         z_range = z_coords.max() - z_coords.min() + 1 if z_coords.size > 0 else 0
-
-        # if (z_range < 4):
-        #     continue
-
         z_ranges.append((label_id, z_range))
         # print(z_range)
         filtered_mask |= component
-
-        # print(filtered_mask.shape)
-        # mask = (labeled == label_id)
-        # z_coords = np.where(mask)[2]  
-        # z_range = z_coords.max() - z_coords.min() + 1 if z_coords.size > 0 else 0
-        # print(f"Component {label_id}: z-range = {z_range} slices")
 
         # visualization
         # verts, faces, _, _ = measure.marching_cubes(component, level=0.5, spacing=(1, 1, 10))
@@ -111,82 +126,32 @@ def select_fingerprint_area(energy_img_list, th):
         # mesh = pv.PolyData(verts, faces)
         # plotter.add_mesh(mesh, color=np.random.rand(3), opacity=0.6)
 
-
-    ############### use compactness and elongation to filter ###################
-    # labeled_2, _ = ndimage.label(filtered_mask, structure=structure)
-    # # print("Number of labels:", np.max(labeled_2))
-    # regions = regionprops(labeled_2.astype(np.uint8))
-    # best_compact = None
-    # best_score = 0
-
-    # # 2 nd condition
-    # best_elongation = None
-    # best_elongation_score = float("inf")
-    # # print(len(regions))
-    # for region in regions:
-    #     volume = region.area
-    #     minr, minc, mind, maxr, maxc, maxd = region.bbox
-    #     depth = maxd - mind
-    #     height = maxr - minr
-    #     width = maxc - minc
-    #     bbox_volume = (maxr - minr) * (maxc - minc) * (maxd - mind)
-    #     bbox_sizes = [depth, height, width]
-    #     elongation_ratio = max(bbox_sizes) / min(bbox_sizes)
-    #     if volume == 0:
-    #         continue
-    #     compact_ratio = volume / bbox_volume 
-    #     # print(compact_ratio)
-    #     curr_label = region.label
-    #     # compact_list.append([curr_label, compact_ratio])
-    #     if compact_ratio > best_score:
-    #         best_score = compact_ratio
-    #         best_compact = curr_label
-
-    #     # print(elongation_ratio)
-    #     if elongation_ratio < best_elongation_score:
-    #         best_elongation_score = elongation_ratio
-    #         best_elongation = curr_label
-
-    # # sort from higher to lower
-    # # compact_list.sort(key = lambda x: x[1])
-    # # # print(compact_list)
-    # # compact_list.pop(0)
-    # # # print(compact_list)
-
-    # # labels, compact_nums = zip(*compact_list)
-    # # # print(len(labels))
-
-    # # filltered_components =  np.isin(labeled_2, labels)
-
-    # most_compact_component = (labeled_2 == best_compact)
-    # least_elongation_component = (labeled_2 == best_elongation)
     n_sectors = 18
     for z in range(n_sectors):
         sum_segment += filtered_mask[:,:,z]
-    # for z in range(n_sectors):
-    #     sum_segment += most_compact_component[:,:,z]
-    # for z in range(n_sectors):
-    #     sum_segment += least_elongation_component[:,:,z]
-    # plotter.show()
+
     return sum_segment
     # plt.show()
     ################################################################################################################
 
+def gaussian_window_2d(shape, sigma):
+    h, w = shape
+    y, x = np.ogrid[:h, :w]
+    cy, cx = h // 2, w // 2
+    gauss = np.exp(-((x - cx)**2 + (y - cy)**2) / (2 * sigma**2))
+    return gauss
 
 def display_grid_image(input_img, block_size):
 
-    h,w = input_img.shape
+    fig, ax = plt.subplots()
+    ax.imshow(input_img, cmap='gray')
+    grid_size = block_size
+    ax.set_xticks(np.arange(-0.5, input_img.shape[1], grid_size))
+    ax.set_yticks(np.arange(-0.5, input_img.shape[0], grid_size))
+    ax.grid(color='red', linestyle='-', linewidth=0.5)
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
 
-    img_grid = input_img.copy()
-
-    for y in range(0, h, block_size):
-        cv.line(img_grid, (0, y), (w, y), (0, 255, 0), 1)
-
-    for x in range(0, w, block_size):
-        cv.line(img_grid, (x, 0), (x, h), (0, 255, 0), 1)
-
-    plt.figure()
-    plt.imshow(img_grid, cmap="gray")
     plt.show()
 
 def find_energy(input_img, block_size):
@@ -259,6 +224,26 @@ def normalize_feature(values, eps=1e-8):
     max_val = np.max(values)
     return [(v - min_val) / (max_val - min_val + eps) for v in values]
 
+def find_freq(img):
+    plt.figure()
+    plt.imshow(img, cmap="gray")
+    FFT = Fourier2D(img)
+    FFT.fft()
+    magnitude = FFT.getMagnitude()
+    FFT.showMagnitude()
+    plt.show()
+    peak_magnitude = magnitude.max()
+    # find euclidean distance 
+    y_pose, x_pose = np.where(magnitude == peak_magnitude)
+    if len(y_pose) == 2:
+        euclidean_distance = np.sqrt((x_pose[0] - x_pose[1])**2 + (y_pose[0] - y_pose[1])**2)
+        freq = euclidean_distance / 2
+    else:
+        euclidean_distance = 0
+        freq = 1
+    return freq
+
+
 def select_fingerprint_region(segment, input_img):
     labeled_mask = label(segment) 
     regions = regionprops(labeled_mask)
@@ -285,20 +270,30 @@ def select_fingerprint_region(segment, input_img):
             continue
         if (curr_label.area) < 13000:
             continue
-        print(curr_label.area)
+        # print(curr_label.area)
         curr_segment = np.zeros_like(segment, dtype=bool)
         curr_segment[labeled_mask == curr_label.label] = 1
         mask_img = input_img[curr_segment]
         area = curr_label.area
         perimeter = curr_label.perimeter
-        plt.imshow(curr_segment, cmap="gray")
-        plt.show()
+
+        # masked_img = np.zeros_like(input_img)
+        # temp_img = input_img * curr_segment
+        # bg_mean = mask_img.mean()
+        # temp_img[curr_segment == 0.0] = bg_mean
+
+        # sigma = 1.5   
+        # filter = gaussian_window_2d(masked_img.shape, sigma=sigma)
+        # temp_img = temp_img * filter
+        # plt.imshow(curr_segment, cmap="gray")
+        # plt.show()
         # print(np.var(mask_img))
+        # freq = find_freq(temp_img)
+        # print(freq)
         variance = np.var(mask_img)
         variance_ratio = variance / (curr_label.area)
         compactness = (perimeter ** 2) / area
-        edges = cv.Canny(mask_img, 50, 150)
-        edge_density = np.count_nonzero(edges) / area
+
         minr, minc, maxr, maxc = curr_label.bbox
         height = maxr - minr
         width = maxc - minc
@@ -306,7 +301,7 @@ def select_fingerprint_region(segment, input_img):
         elongation_ratio = max(bbox_sizes) / min(bbox_sizes)
 
         variances_list.append(variance)
-        # edges_list.append(edge_density)
+
         # compactness_list.append(compactness)
         # area_list.append(area)
         elongation_list.append(elongation_ratio)
@@ -314,36 +309,19 @@ def select_fingerprint_region(segment, input_img):
         # print(variance)
         # print(f"variance_ratio = {variance_ratio}")
         # print(f"compactness = {compactness}")
-        # print(f"edge_density = {edge_density}")
         # print(f"area = {area}")
 
-        # score = 0.5 * variance_ratio + 1.0 * compactness + 1.5 * edge_density
-        # scores.append([score, curr_label])
-
-        # if variance_ratio > max_variance_ratio:
-        #     max_variance_ratio = variance_ratio
-        #     fingerprint_label = curr_label
-        # if compactness < min_compactness_ratio:
-        #     min_compactness_ratio = compactness
-        #     fingerprint_label = curr_label
-            # print(max_variance_ratio)
-        # if edge_density > max_edge_density:
-        #     max_edge_density = edge_density
-        #     fingerprint_label = curr_label
-
     norm_variance = normalize_feature(variances_list)
-    print(f"norm_variance = {norm_variance}")
-    # norm_edge = normalize_feature(edges_list)
-    # print(f"norm_edge = {norm_edge}")
+    # print(f"norm_variance = {norm_variance}")
     # norm_compact = normalize_feature(compactness_list)
     # print(f"norm_compact = {norm_compact}")
     norm_elongation = normalize_feature(elongation_list)
-    print(f"norm_elongation = {norm_elongation}")
+    # print(f"norm_elongation = {norm_elongation}")
     # norm_area = normalize_feature(area_list)
     # print(f"norm_area = {norm_area}")
 
+    # inverse score for some feature
     # norm_compact = [1 - c for c in norm_compact]
-
     norm_elongation = [1 - c for c in norm_elongation]
     
     scores = []
@@ -355,14 +333,12 @@ def select_fingerprint_region(segment, input_img):
     scores.sort(key= lambda x: x[0], reverse=True)
     top_score, fingerprint_label = scores[0]
 
-    print(scores)
+    # print(scores)
 
     fingerprint_mask[labeled_mask == fingerprint_label.label] = 1
         
 
     return fingerprint_mask
-
-
 
 ###########################  Path #########################
 # input_file_path = r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename\049L3U.bmp"
@@ -372,7 +348,7 @@ output_path = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restorati
 output_path_2 = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\watershed_idea_segment/"
 output_path_3 = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\spatial_energy\watershed_segment_fixed/"
 temp_input = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\fillteredImg\080L8U.bmp.bmp"
-output_segment = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\segment\org_th_0_3/"
+output_segment = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\segment\auto_selected_threshold_features/"
 
 raw_files_path.sort()
 input_files_path.sort()
@@ -407,7 +383,7 @@ for idx in range(len(raw_files_path)):
         energy_img_list.append(energy)
 
     segments = []
-    for th in np.arange(0.9, 0.0, -0.05):
+    for th in np.arange(0.5, 0.0, -0.05):
         segment = select_fingerprint_area(energy_img_list, th=th)
         segments.append(segment)
         # labeled, num_labeled = ndimage.label(segment)
@@ -429,7 +405,7 @@ for idx in range(len(raw_files_path)):
 
     max_diff = max(differences)
     idx_max_diff = differences.index(max_diff)
-    print(f"threshold = {round(0.9 - idx_max_diff * 0.05, 1)}")
+    # print(f"threshold = {round(0.9 - idx_max_diff * 0.05, 1)}")
     # print(max_diff, idx_max_diff)
     # plt.figure()
     # plt.imshow(segments[idx_max_diff], cmap="gray")
