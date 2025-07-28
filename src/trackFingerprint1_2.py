@@ -71,10 +71,16 @@ def select_fingerprint_area(energy_img_list, th):
     paired_energy_list = []
     paired_segment_list = []
     for j in range(len(segment_list)):
-        paired_energy = segment_list[j] * segment_list[(j+1)%16]
+        paired_energy = segment_list[j] * segment_list[(j+1)%18]
         paired_energy_list.append(paired_energy)
         binary_volume = np.where(paired_energy == 0, 0, 1)
         paired_segment_list.append(binary_volume)
+        # print(j)
+        # plt.figure()
+        # plt.imshow(segment_list[j], cmap="gray")
+        # plt.figure()
+        # plt.imshow(segment_list[(j+1)%18], cmap="gray")
+        # plt.figure()
         # plt.imshow(binary_volume, cmap="gray")
         # plt.show()
     
@@ -94,6 +100,8 @@ def select_fingerprint_area(energy_img_list, th):
     size = 3
     dilated_volume = dilate3D(paired_segment_list, radius=radius)
     # for j in range(18):
+        # print(j)
+        # display_grid_image(paired_segment_list[:,:,j], block_size=33)
         # display_grid_image(dilated_volume[:,:,j], block_size=33)
         # plt.imshow(dilated_volume[:,:,j], cmap="gray")
         # plt.show()
@@ -142,7 +150,6 @@ def gaussian_window_2d(shape, sigma):
     return gauss
 
 def display_grid_image(input_img, block_size):
-
     fig, ax = plt.subplots()
     ax.imshow(input_img, cmap='gray')
     grid_size = block_size
