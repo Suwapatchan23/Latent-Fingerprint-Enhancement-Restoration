@@ -64,6 +64,8 @@ def select_fingerprint_area(energy_img_list, th):
         temp_energy = np.where(energy_img_list[i] > threshold, 1, 0).astype(float)
         # plt.imshow(temp_energy, cmap="gray")
         # plt.show()
+        # print(i)
+        # display_grid_image(temp_energy, block_size=33)
         segment_list.append(segment_energy)
         temp_segment_list.append(temp_energy)
         # plt.imshow(temp_energy, cmap="gray")
@@ -107,6 +109,8 @@ def select_fingerprint_area(energy_img_list, th):
         # plt.show()
     and_vol = np.logical_and(dilated_volume, temp_segment_list)
     # for j in range(18):
+        # print(j)
+        # display_grid_image(and_vol[:,:,j], block_size=33)
         # plt.imshow(and_vol[:,:,j], cmap="gray")
         # plt.show()
     # print(dilated_volume.shape)
@@ -134,6 +138,7 @@ def select_fingerprint_area(energy_img_list, th):
         # mesh = pv.PolyData(verts, faces)
         # plotter.add_mesh(mesh, color=np.random.rand(3), opacity=0.6)
 
+    # plotter.show()
     n_sectors = 18
     for z in range(n_sectors):
         sum_segment += filtered_mask[:,:,z]
@@ -390,7 +395,7 @@ for idx in range(len(raw_files_path)):
         energy_img_list.append(energy)
 
     segments = []
-    for th in np.arange(0.5, 0.0, -0.05):
+    for th in np.arange(0.7, 0.0, -0.05):
         segment = select_fingerprint_area(energy_img_list, th=th)
         segments.append(segment)
         # labeled, num_labeled = ndimage.label(segment)
@@ -412,7 +417,7 @@ for idx in range(len(raw_files_path)):
 
     max_diff = max(differences)
     idx_max_diff = differences.index(max_diff)
-    # print(f"threshold = {round(0.9 - idx_max_diff * 0.05, 1)}")
+    print(f"threshold = {round(0.7 - idx_max_diff * 0.05, 2)}")
     # print(max_diff, idx_max_diff)
     # plt.figure()
     # plt.imshow(segments[idx_max_diff], cmap="gray")
