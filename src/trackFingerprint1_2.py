@@ -53,15 +53,18 @@ def dilate3D(mask, radius):
 def select_fingerprint_area(energy_img_list, th):
     th = round(th, 2)
     energy_img_arr = np.array(energy_img_list)
+    # normalize energy 
+    energy_img_arr_norm = (energy_img_arr - energy_img_arr.min()) / (energy_img_arr.max() - energy_img_arr.min())
     segment_list = []
     temp_segment_list = []
-    max_energy = energy_img_arr.max()
+    max_energy = energy_img_arr_norm.max()
     # print(th)
     threshold = max_energy * th
     # print(threshold)
     for i in range(len(energy_img_list)):
-        segment_energy = np.where(energy_img_list[i] > threshold, energy_img_list[i], 0).astype(float)
-        temp_energy = np.where(energy_img_list[i] > threshold, 1, 0).astype(float)
+        
+        segment_energy = np.where(energy_img_arr_norm[i] > threshold, energy_img_arr_norm[i], 0).astype(float)
+        temp_energy = np.where(energy_img_arr_norm[i] > threshold, 1, 0).astype(float)
         # plt.imshow(temp_energy, cmap="gray")
         # plt.show()
         # print(i)
