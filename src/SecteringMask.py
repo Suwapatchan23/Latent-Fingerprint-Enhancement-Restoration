@@ -18,8 +18,9 @@ from utils.Normalize_Module import normalize
 class SecteringMask:
 
 
-    def __init__(self, gray_img):
+    def __init__(self, gray_img, weight_tv):
         self.gray_img = gray_img
+        self.weight_tv = weight_tv
         self.filtered_img = None
         self.sectors_list = []
 
@@ -95,11 +96,12 @@ class SecteringMask:
         dir_name = dir_name + "/"
         return dir_name
     
-    def _pre_processing(self, img, weight=0.1):
-        denoise_img = denoise_tv_chambolle(img, weight=weight)
-        denoise_img = normalize(denoise_img)
-        pre_img = self.gray_img - denoise_img
-        return pre_img
+    def _pre_processing(self, img):
+        input_img_float = img.astype(np.float64)
+        cartoon_img = denoise_tv_chambolle(input_img_float, weight=self.weight_tv)
+        texture_img = input_img_float - cartoon_img.astype(np.float64)
+        texture_img = normalize(texture_img).astype(np.uint8)
+        return texture_img
 
     def _applied_tukey_window(self, img, alpha=0.2):
         h, w = img.shape
@@ -111,9 +113,10 @@ class SecteringMask:
 
         return tukey_img
     
+    
     def MaskSector(self):
         
-        pre_img = self._pre_processing(self.gray_img, weight=0.5)
+        pre_img = self._pre_processing(self.gray_img)
         tukey_img = self._applied_tukey_window(pre_img)
 
         fourier = Fourier2D(tukey_img)

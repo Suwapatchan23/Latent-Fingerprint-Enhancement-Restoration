@@ -26,7 +26,7 @@ from TrackFingerPrint import TrackFingerPrint
 input_file_path = r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename\056L9U.bmp"
 input_files_path = glob(r"D:\KSIP_Research\Latent\Database\NIST27\LatentRename/" + "*")
 
-output_segment_path = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\segment\auto_selected_threshold_features_TV/"
+output_segment_path = r"D:\KSIP_Research\Latent\Latent_Fingerprint_Enhancement_Restoration\output\segment\auto_selected_threshold_features_TV_0_5/"
 
 for idx in range(len(input_files_path)):
 
@@ -36,7 +36,8 @@ for idx in range(len(input_files_path)):
     input_img = cv.imread(input_files_path[idx])
     gray_img = cv.cvtColor(input_img, cv.COLOR_BGR2GRAY)
 
-    mask_sector = SecteringMask(gray_img)
+    weight_tv = 5.0
+    mask_sector = SecteringMask(gray_img, weight_tv = weight_tv)
     mask_sector.MaskSector()
 
     filtered_img = mask_sector.getFilteredImg()
@@ -45,12 +46,12 @@ for idx in range(len(input_files_path)):
     Tracking = TrackFingerPrint(filtered_img, sectors_list)
     Tracking.forward()
     output_img = Tracking.get_output_img()
-    plt.imshow(output_img, cmap="gray")
-    plt.show()
+    # plt.imshow(output_img, cmap="gray")
+    # plt.show()
     
 
     base_filename = os.path.basename(input_file_name)
     output_file_name = output_segment_path + base_filename
-    # cv.imwrite(output_file_name, output_img)
-    # plt.imsave(output_file_name, output_img)
-    # io.imsave(output_file_name, output_img)
+    cv.imwrite(output_file_name, output_img)
+    plt.imsave(output_file_name, output_img)
+    io.imsave(output_file_name, output_img)
