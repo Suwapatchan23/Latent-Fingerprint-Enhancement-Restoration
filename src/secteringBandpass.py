@@ -5,6 +5,9 @@ from glob import glob
 import os
 from skimage import io
 from scipy.signal import convolve2d, windows
+from skimage.restoration import denoise_tv_chambolle
+
+
 
 
 from utils.Filter_Module import bandpassFilter
@@ -102,26 +105,20 @@ for idx in range(len(input_files_path)):
 
 
 
-    ######################### Pre-processing ################################
-    # output_img = gray_img.copy()
-
-    # # คำนวณค่าเฉลี่ยของภาพ (หรือนอกกล่องก็ได้)
-    # global_mean = int(np.mean(gray_img))
-
-    # # กำหนด threshold ความดำเข้ม
-    # threshold = 40
-
-    # # วน loop ทั่วภาพ โดยไม่รวมขอบ (เพราะ 3x3)
-    # for y in range(1, gray_img.shape[0] - 1):
-    #     for x in range(1, gray_img.shape[1] - 1):
-    #         patch = gray_img[y-1:y+2, x-1:x+2]
-
-    #         # เช็คว่าใน 3x3 นี้ ทุกจุด "ดำเข้ม"
-    #         if np.all(patch <= threshold):
-    #             output_img[y-1:y+2, x-1:x+2] = global_mean  # แทนด้วยค่าเฉลี่ย
-    # kernel_size = 3
-    # sigma = 1.5
-    # output_img = applied_gaussian(output_img, kernel_size=kernel_size, sigma=sigma)
+    ######################### Pre-processing ###############################
+    # TV for pre-processing
+    denoise_img = denoise_tv_chambolle(gray_img, weight=0.1)
+    # plt.show()
+    print(type(gray_img), type(denoise_img))
+    denoise_img = normalize(denoise_img)
+    pre_img = gray_img - denoise_img
+    plt.figure()
+    plt.imshow(denoise_img, cmap="gray")
+    plt.figure()
+    plt.imshow(gray_img, cmap="gray")
+    plt.figure()
+    plt.imshow(pre_img, cmap="gray")
+    plt.show()
     ######################## Tukey Window ###################################
     h, w = gray_img.shape
     # print(h, w)
@@ -130,7 +127,7 @@ for idx in range(len(input_files_path)):
     tukey_x = windows.tukey(w, alpha).reshape(1, -1)
     tukey_2d = tukey_y @ tukey_x
 
-    tukey_img = gray_img * tukey_2d
+    tukey_img = pre_img * tukey_2d
 
     # plt.figure()
     # plt.imshow(gray_img, cmap="gray")
@@ -157,16 +154,16 @@ for idx in range(len(input_files_path)):
     # plt.imshow(bp_filter, cmap="hot")
     # plt.show()
     filtered_magnitude = bp_filter * magnitude
-    plt.figure()
-    plt.imshow(filtered_magnitude, cmap="hot")
+    # plt.figure()
+    # plt.imshow(filtered_magnitude, cmap="hot")
     
     fourier.setMagnitude(filtered_magnitude)
     fourier.ifft()
 
     filtered_img = fourier.getOutputImage()
-    plt.figure()
-    plt.imshow(filtered_img, cmap="gray")
-    plt.show()
+    # plt.figure()
+    # plt.imshow(filtered_img, cmap="gray")
+    # plt.show()
     filtered_img = normalize(filtered_img)
 
     base_filename = os.path.basename(input_file_name).split('.')[0]
@@ -206,8 +203,8 @@ for idx in range(len(input_files_path)):
 
         # plt.figure()
         # plt.imshow(filtered_magnitude, cmap="hot")
-        plt.figure()
-        plt.imshow(masked_magnitude, cmap="hot")
+        # plt.figure()
+        # plt.imshow(masked_magnitude, cmap="hot")
       
         fourier.setMagnitude(masked_magnitude)
         fourier.ifft()
@@ -224,29 +221,9 @@ for idx in range(len(input_files_path)):
         # plt.imshow(mask, cmap="gray")
         # plt.figure()
         # plt.imshow(masked_magnitude, cmap="hot")
-        # # plt.figure()
         # plt.figure()
-        # plt.imshow(norm_img, cmap="gray")
+        plt.figure()
+        plt.imshow(norm_img, cmap="gray")
 
         plt.show()
-    # plt.imshow(temp, cmap="hot")
-    # plt.show()
 
-
-    if need_combine_mask:
-        combined_magnitude = filtered_magnitude.copy()
-        combined_magnitude = combined_mask * filtered_magnitude
-
-        fourier.setMagnitude(combined_magnitude)
-        fourier.ifft()
-        output_img = fourier.getOutputImage()
-        output_img = normalize(output_img)
-        plt.figure()
-        plt.imshow(filtered_img, cmap="gray")
-        plt.figure()
-        plt.imshow(combined_mask, cmap="gray")
-        plt.figure()
-        plt.imshow(combined_magnitude, cmap="hot")
-        plt.figure()
-        plt.imshow(output_img, cmap="gray")
-        plt.show()
