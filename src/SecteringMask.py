@@ -18,11 +18,12 @@ from utils.Normalize_Module import normalize
 class SecteringMask:
 
 
-    def __init__(self, gray_img, weight_tv):
+    def __init__(self, gray_img, weight_tv, preprocessing):
         self.gray_img = gray_img
         self.weight_tv = weight_tv
         self.filtered_img = None
         self.sectors_list = []
+        self.need_preprocessing = preprocessing
 
 
     def _get_sector_mask(self, shape, center, r_inner, r_outer, angle_mask, angle_mask_mirror):
@@ -115,8 +116,11 @@ class SecteringMask:
     
     
     def MaskSector(self):
-        
-        pre_img = self._pre_processing(self.gray_img)
+    
+        if self.need_preprocessing :
+            pre_img = self._pre_processing(self.gray_img)
+        else:
+            pre_img = self.gray_img
         tukey_img = self._applied_tukey_window(pre_img)
 
         fourier = Fourier2D(tukey_img)

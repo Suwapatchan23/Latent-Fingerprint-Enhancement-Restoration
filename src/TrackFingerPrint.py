@@ -7,6 +7,7 @@ from skimage.measure import regionprops, label
 from scipy.ndimage import uniform_filter
 from scipy import ndimage
 import pyvista as pv
+from skimage.color import label2rgb
 
 from utils.Morphological_Module import fillHoles
 from utils.Fourier_Module import Fourier2D
@@ -61,11 +62,13 @@ class TrackFingerPrint:
         threshold = max_energy * th
         # print(threshold)
         for i in range(len(energy_img_list)):
-            
+            # print(f"sector {i}")
             segment_energy = np.where(energy_img_arr_norm[i] > threshold, energy_img_arr_norm[i], 0).astype(float)
             temp_energy = np.where(energy_img_arr_norm[i] > threshold, 1, 0).astype(float)
             segment_list.append(segment_energy)
             temp_segment_list.append(temp_energy)
+            # plt.imshow(temp_energy, cmap="gray")
+            # plt.show()
 
         paired_energy_list = []
         paired_segment_list = []
@@ -191,10 +194,13 @@ class TrackFingerPrint:
     def _compare_segments(self, segment1, segment2):
 
         segment1_area = np.count_nonzero(segment1)
+        # print(f"area 1 {segment1_area}")
 
         segment2_area = np.count_nonzero(segment2)
+        # print(f"area 2 {segment2_area}")
 
         diff = np.abs(segment2_area - segment1_area)
+        # print(f"diff {diff}")
 
         return diff
 
@@ -290,6 +296,59 @@ class TrackFingerPrint:
     
     def get_output_img(self):
         return self.output_img
+    
+    def _MSER(self, energy_img_list):
+        mser = cv.MSER_create()
+
+        binary_masks = []
+
+        for z in range(len(energy_img_list)):
+            img_slice = energy_img_list[z] 
+
+            # print(f"sector {z}")
+
+
+            # Detect regions
+            regions, _ = mser.detectRegions(img_slice)
+
+            mask = np.zeros_like(img_slice, dtype=np.uint8)
+
+            for region in regions:
+                cv.fillPoly(mask, [region.reshape(-1, 1, 2)], 255)
+
+            # plt.imshow(mask, cmap="gray")
+            # plt.show()
+
+            binary_masks.append(mask)
+
+
+
+        radius = 1
+        size = 3
+        binary_masks = np.array(binary_masks)
+
+        binary_masks = binary_masks.transpose(1, 2, 0)
+        dilated_volume = self._dilate3D(binary_masks, radius=radius)
+        size = 3
+        structure = np.ones((size, size, size), dtype=bool)
+        labeled, num_obj = ndimage.label(dilated_volume, structure=structure)
+        # print(num_obj)
+
+        filtered_mask = np.zeros_like(labeled, dtype=bool)
+        sum_segment = np.zeros_like(filtered_mask[:,:,0], dtype=bool)
+
+        for label_id in range(1, num_obj + 1):
+            component = (labeled == label_id)
+            filtered_mask |= component
+
+        n_sectors = 18
+        for z in range(n_sectors):
+            sum_segment += filtered_mask[:,:,z]
+        
+
+        return sum_segment
+
+
 
     
     def forward(self):
@@ -301,13 +360,22 @@ class TrackFingerPrint:
             segment = self._select_fingerprint_area(self.energy_img_list, th=th)
             self.segments.append(segment)
         
+        # mser_segment = self._MSER(self.energy_img_list)
+        # label_img = label(mser_segment)
+        # rgb_img = label2rgb(label_img, bg_label=0)
+
+        # plt.imshow(rgb_img)
+        # plt.show()
+
         n = len(self.segments)
+
         for j in range(n-1):
+            # print(j)
             seg1 = self.segments[j]
             seg2 = self.segments[(j + 1)]  
             diff = self._compare_segments(seg1, seg2)  
             self.differences.append(diff)
-
+        
         max_diff = max(self.differences)
         idx_max_diff = self.differences.index(max_diff)
         print(f"threshold = {round(0.7 - idx_max_diff * 0.05, 2)}")
@@ -316,6 +384,12 @@ class TrackFingerPrint:
         fingerprint_segment = self._select_fingerprint_region(fillhole_segment, self.filtered_img)
         self.output_img = self.filtered_img * fingerprint_segment
         self.output_img[fingerprint_segment == 0] = self.filtered_img.mean()
+
+        # fillhole_segment = fillHoles(mser_segment.astype(np.float32))
+        # fingerprint_segment = self._select_fingerprint_region(fillhole_segment, self.filtered_img)
+        # self.output_img = self.filtered_img * fingerprint_segment
+        # self.output_img[fingerprint_segment == 0] = self.filtered_img.mean()
+        
 
     
         
