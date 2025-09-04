@@ -6,13 +6,16 @@ import os
 from skimage import io
 from scipy.signal import convolve2d, windows
 from skimage.restoration import denoise_tv_chambolle
-
+from scipy.ndimage import uniform_filter
+import pyvista as pv
+from scipy import ndimage
 
 
 
 from utils.Filter_Module import bandpassFilter
 from utils.Fourier_Module import Fourier2D
 from utils.Normalize_Module import normalize
+from utils.Windowing_Module import WindowPartition2D
 
 
 class SecteringMask:
@@ -97,13 +100,122 @@ class SecteringMask:
         dir_name = dir_name + "/"
         return dir_name
     
-    def _pre_processing(self, img):
+    def display_grid_image(self, input_img, block_size):
+        fig, ax = plt.subplots()
+        ax.imshow(input_img, cmap='gray')
+        grid_size = block_size
+        ax.set_xticks(np.arange(-0.5, input_img.shape[1], grid_size))
+        ax.set_yticks(np.arange(-0.5, input_img.shape[0], grid_size))
+        ax.grid(color='red', linestyle='-', linewidth=0.5)
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+    
+    def _find_sigma(self, gray_img):
+        max_gradient_list = []
+        window = WindowPartition2D(gray_img, 32, 32)
+        window.forward()
+        window_list = window.getWindowList()
+        window_y, window_x = window.getWindowCount()
+        grad_mag_list = np.zeros_like(window_list)
+        for y in range(window_y):
+            for x in range(window_x):
+                gx, gy = np.gradient(window_list[y][x])
+                grad_mag = np.sqrt(gx**2 + gy**2)
+                # plt.figure()
+                # plt.imshow(window_list[y][x], cmap="gray")
+                # plt.figure()
+                # plt.imshow(grad_mag, cmap="hot")
+                # plt.show()
+                local_max_gradient = np.max(grad_mag)
+        
+                grad_mag_list[y][x] = grad_mag
+                max_gradient_list.append(local_max_gradient)
+
+        max_gradient_list = np.reshape(max_gradient_list, (window_y,window_x))
+        global_max_gradint = np.max(max_gradient_list)
+        # print(global_max_gradint)
+
+        # self.display_grid_image(gray_img, 32)
+        # plt.figure()
+        # # plt.imshow(gray_img, cmap="gray")
+        # plt.imshow(max_gradient_list, cmap="hot")
+        # plt.colorbar(label='Quality')
+
+        idx_block_y, idx_block_x = np.where(max_gradient_list == global_max_gradint)
+        idx_block_y = idx_block_y[0]
+        idx_block_x = idx_block_x[0]
+        block = window_list[idx_block_y][idx_block_x]
+        # plt.figure()
+        # plt.imshow(block, cmap="gray")
+        _, th = cv.threshold(block, 40, 255, cv.THRESH_TOZERO)
+        # plt.figure()
+        # plt.imshow(th, cmap="gray")
+        # plt.show()
+
+
+        # max_intensity = np.max(th[th != 0])
+        max_pos = np.unravel_index(np.argmax(grad_mag_list[idx_block_y,idx_block_x]), grad_mag_list[idx_block_y,idx_block_x].shape)
+        min_pos = np.unravel_index(np.argmin(grad_mag_list[idx_block_y,idx_block_x]), grad_mag_list[idx_block_y,idx_block_x].shape)
+        max_grad_intensity = block[max_pos]
+        min_grad_intensity = block[min_pos]
+        max_intensity = np.max(th)
+        min_intensity = np.min(th[th != 0])
+
+        # print(max_intensity, min_intensity)
+
+        # print(max_grad_intensity, min_intensity)
+
+        # max_pos = np.unravel_index(np.argmax(grad_mag_list[idx_block_y,idx_block_x]), grad_mag_list[idx_block_y,idx_block_x].shape)
+        # min_gradient = np.min(grad_mag_list[idx_block_y,idx_block_x])
+        # min_pos = np.unravel_index(np.argmin(grad_mag_list[idx_block_y,idx_block_x]), grad_mag_list[idx_block_y,idx_block_x].shape)
+        # diff_intensity = np.abs((np.max(window_list[idx_block_y][idx_block_x])).astype(np.float32) - (np.min(window_list[idx_block_y][idx_block_x])).astype(np.float32))
+
+        diff_intensity = np.abs(max_intensity.astype(np.float32) - min_intensity.astype(np.float32))
+        d = np.abs(max_grad_intensity.astype(np.float32) - min_grad_intensity.astype(np.float32))
+
+        # m = 0
+        # if diff_intensity < 200:
+        #     print("different intensity less than 200")
+        #     sigma_intensity = 12
+        #     return sigma_intensity
+        # # elif diff_intensity > 120:
+        # #     m = 4
+        # else:
+        #     m = 5
+        m = 5
+        # sigma_intensity = int(diff_intensity / m)
+        sigma_intensity = int(diff_intensity / m)
+        if sigma_intensity == 0:
+            sigma_intensity = 10
+        # sigma_intensity = 10
+        # print(f"different intensity = {d}")
+        # print(f"sigma_intensity = {sigma_intensity}")
+        return sigma_intensity
+
+
+    def _TV_preprocessing(self, img):
         input_img_float = img.astype(np.float64)
         cartoon_img = denoise_tv_chambolle(input_img_float, weight=self.weight_tv)
         texture_img = input_img_float - cartoon_img.astype(np.float64)
         texture_img = normalize(texture_img).astype(np.uint8)
+        
         return texture_img
-
+    
+    def _bilateral_preprocessing(self, img, sigma_intensity, sigma_space=8):
+        input_img_float = img.astype(np.float32)
+        # 40 10
+        cartoon_img  = cv.bilateralFilter(input_img_float, d=0, sigmaColor=sigma_intensity, sigmaSpace=sigma_space)
+        # plt.figure()
+        # plt.imshow(img, cmap="gray")
+        # plt.figure()
+        # plt.imshow(cartoon_img, cmap="gray")
+        texture_img = input_img_float - cartoon_img.astype(np.float64)
+        texture_img = normalize(texture_img).astype(np.uint8)
+        plt.figure()
+        plt.imshow(texture_img, cmap="gray")
+        plt.show()
+        return texture_img
+    
     def _applied_tukey_window(self, img, alpha=0.2):
         h, w = img.shape
         tukey_y = windows.tukey(h, alpha).reshape(-1, 1)
@@ -114,13 +226,43 @@ class SecteringMask:
 
         return tukey_img
     
+    def _estimate_noise(self, img):
+        diff = np.abs(img - np.median(img))
+        # to ignore over peak value
+        diff = np.clip(diff, 0, 20)  
+        sigma_noise = 1.4826 * np.median(diff)
+        print(sigma_noise)
+        return sigma_noise
+    
     
     def MaskSector(self):
-    
+
         if self.need_preprocessing :
-            pre_img = self._pre_processing(self.gray_img)
+            # tv_img = self._TV_preprocessing(self.gray_img)
+            sigma_intensity = self._find_sigma(self.gray_img)
+            # img_norm = self.gray_img.astype(float)/255.0
+            # sigmaColor_norm = self._estimate_noise(img_norm)
+            # sigmaColor = sigmaColor_norm * 255
+
+            # print(sigmaColor)
+            bilateral_img = self._bilateral_preprocessing(self.gray_img, sigma_intensity)
+            pre_img = bilateral_img
+            # var = np.var(bilateral_img)
+            # print(var)
+            # if var < 600:
+            #     pre_img = tv_img
+            # else:
+            #     pre_img = bilateral_img
         else:
             pre_img = self.gray_img
+        
+        # plt.figure()
+        # plt.imshow(self.gray_img, cmap="gray")
+        # plt.figure()
+        # plt.imshow(tv_img, cmap="gray")
+        # plt.figure()
+        # plt.imshow(bilateral_img, cmap="gray")
+        # plt.show()
         tukey_img = self._applied_tukey_window(pre_img)
 
         fourier = Fourier2D(tukey_img)
@@ -128,20 +270,26 @@ class SecteringMask:
 
         filter_size = self.gray_img.shape
         filter_pos = (filter_size[0] // 2, filter_size[1] //2)
+        #filter center = 108, filter bandwidth = 96
         filter_center = 108
         filter_bw = 96
         bp_filter = bandpassFilter(filter_size, filter_pos, filter_center, filter_bw, "Gaussian")
         magnitude = fourier.getMagnitude()
         filtered_magnitude = bp_filter * magnitude
-
+        
         
         fourier.setMagnitude(filtered_magnitude)
+
         fourier.ifft()
 
         filtered_img = fourier.getOutputImage()
 
         filtered_img = normalize(filtered_img)
         self.filtered_img = filtered_img
+
+        # plt.figure()
+        # plt.imshow(filtered_img, cmap="gray")
+        # plt.show()
 
         ######################### Sectoring ###########################
         combined_mask = np.zeros_like(filtered_magnitude, dtype=np.float64)

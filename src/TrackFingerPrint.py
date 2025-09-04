@@ -8,9 +8,14 @@ from scipy.ndimage import uniform_filter
 from scipy import ndimage
 import pyvista as pv
 from skimage.color import label2rgb
+from skimage import measure, io, color
+from skimage.exposure import equalize_adapthist
+from skimage.feature import local_binary_pattern
 
 from utils.Morphological_Module import fillHoles
 from utils.Fourier_Module import Fourier2D
+from utils.SpectralGaborFilterBankFilter.SpectralGaborFilterBankFilter import SpectralGaborFilterBankFilter
+from utils.Normalize_Module import adjustRange
 
 class TrackFingerPrint:
 
@@ -21,6 +26,7 @@ class TrackFingerPrint:
         self.segments = []
         self.differences = []
         self.output_img = None
+        self.output_segment = None
     
 
 
@@ -55,6 +61,7 @@ class TrackFingerPrint:
         energy_img_arr = np.array(energy_img_list)
         # normalize energy 
         energy_img_arr_norm = (energy_img_arr - energy_img_arr.min()) / (energy_img_arr.max() - energy_img_arr.min())
+        
         segment_list = []
         temp_segment_list = []
         max_energy = energy_img_arr_norm.max()
@@ -63,12 +70,16 @@ class TrackFingerPrint:
         # print(threshold)
         for i in range(len(energy_img_list)):
             # print(f"sector {i}")
+            # plt.figure()
+            # plt.imshow(energy_img_list[i], cmap="hot")
             segment_energy = np.where(energy_img_arr_norm[i] > threshold, energy_img_arr_norm[i], 0).astype(float)
             temp_energy = np.where(energy_img_arr_norm[i] > threshold, 1, 0).astype(float)
+            # plt.figure()
+            # plt.imshow(segment_energy, cmap="hot")
+            # plt.show()
             segment_list.append(segment_energy)
             temp_segment_list.append(temp_energy)
-            # plt.imshow(temp_energy, cmap="gray")
-            # plt.show()
+            
 
         paired_energy_list = []
         paired_segment_list = []
@@ -76,6 +87,9 @@ class TrackFingerPrint:
             paired_energy = segment_list[j] * segment_list[(j+1)%18]
             paired_energy_list.append(paired_energy)
             binary_volume = np.where(paired_energy == 0, 0, 1)
+            # print(j)
+            # plt.imshow(binary_volume, cmap="gray")
+            # plt.show()
             paired_segment_list.append(binary_volume)
         
         paired_energy_list = np.array(paired_energy_list)
@@ -92,24 +106,53 @@ class TrackFingerPrint:
         size = 3
         dilated_volume = self._dilate3D(paired_segment_list, radius=radius)
         and_vol = np.logical_and(dilated_volume, temp_segment_list)
+        # for i in range(18):
+        #     self.display_grid_image(dilated_volume[:,:,i], block_size=33)
+        #     self.display_grid_image(temp_segment_list[:,:,i], block_size=33)
+        #     self.display_grid_image(and_vol[:,:,i], block_size=33)
+        #     plt.show()
         
         structure = np.ones((size, size, size), dtype=bool)
         labeled, num_obj = ndimage.label(and_vol, structure=structure)
 
         filtered_mask = np.zeros_like(labeled, dtype=bool)
         sum_segment = np.zeros_like(filtered_mask[:,:,0], dtype=bool)
-        plotter = pv.Plotter()
+        # plotter = pv.Plotter()
         z_ranges = []
 
         for label_id in range(1, num_obj + 1):
 
             component = (labeled == label_id)
-            z_coords = np.where(component)[2]
-            z_range = z_coords.max() - z_coords.min() + 1 if z_coords.size > 0 else 0
-            z_ranges.append((label_id, z_range))
+            # z_coords = np.where(component)[2]
+            # z_range = z_coords.max() - z_coords.min() + 1 if z_coords.size > 0 else 0
+            # z_ranges.append((label_id, z_range))
+
+            # if z_range > 3:
+            #     filtered_mask |= component
+
             filtered_mask |= component
+                
+            # visualization
+            # verts, faces, _, _ = measure.marching_cubes(component, level=0.5, spacing=(1, 1, 10))
+            # faces = np.hstack([[3, *f] for f in faces])
+            # mesh = pv.PolyData(verts, faces)
+            # plotter.add_mesh(mesh, color=np.random.rand(3), opacity=0.6)
+
+        # select deepest region
+        # max_z_range = max(z_ranges, key=lambda x: x[1])
+        # component = (labeled == max_z_range[0])
+
+        # visualization
+        # verts, faces, _, _ = measure.marching_cubes(component, level=0.5, spacing=(1, 1, 10))
+        # faces = np.hstack([[3, *f] for f in faces])
+        # mesh = pv.PolyData(verts, faces)
+        # plotter.add_mesh(mesh, color=np.random.rand(3), opacity=0.6)
+        
+        # plotter.show()
 
         n_sectors = 18
+        # for z in range(n_sectors):
+        #     sum_segment += component[:,:,z]
         for z in range(n_sectors):
             sum_segment += filtered_mask[:,:,z]
 
@@ -134,7 +177,6 @@ class TrackFingerPrint:
         ax.set_xticklabels([])
         ax.set_yticklabels([])
 
-        plt.show()
 
     def _find_energy(self, input_img, block_size):
 
@@ -154,6 +196,28 @@ class TrackFingerPrint:
 
 
         return local_variance_display
+    
+    def _lbp(self, input_img, block_size):
+     
+        radius = 1
+        n_points = 8 * radius
+        method = 'uniform'   
+
+        
+        w = block_size            
+
+        lbp_map = local_binary_pattern(input_img, n_points, radius, method=method).astype(np.float32)
+
+        mean = uniform_filter(lbp_map, size=w, mode='reflect')
+        mean_sq = uniform_filter(lbp_map**2, size=w, mode='reflect')
+
+        # local variance per-pixel
+        var_lbp = mean_sq - mean**2
+
+        var_lbp = np.clip(var_lbp, 0, None)
+
+        var_norm = (var_lbp - var_lbp.min()) / (var_lbp.max() - var_lbp.min())
+        return var_norm
 
 
     def _horizontal_mirror(self, segment):
@@ -176,7 +240,7 @@ class TrackFingerPrint:
         full_mirror = self._vertical_mirror(h_mirror)
         return full_mirror
 
-    def _select_largest_region(self, segment):
+    def select_largest_region(self, segment):
         labeled_mask = label(segment) 
         regions = regionprops(labeled_mask)
 
@@ -229,73 +293,113 @@ class TrackFingerPrint:
         return freq
 
 
-    def _select_fingerprint_region(self, segment, input_img):
-        labeled_mask = label(segment) 
-        regions = regionprops(labeled_mask)
-        fingerprint_mask = np.zeros_like(segment, dtype=bool)
+    # def _select_fingerprint_region(self, segment, input_img):
+    #     labeled_mask = label(segment) 
+    #     regions = regionprops(labeled_mask)
+    #     fingerprint_mask = np.zeros_like(segment, dtype=bool)
 
-        num_obj = len(regions)
+    #     num_obj = len(regions)
 
-        # filter only 3 largest components
-        component_sizes = [(label_id, np.count_nonzero(labeled_mask == label_id)) for label_id in range(1, num_obj + 1)]
-        component_sizes.sort(key=lambda x: x[1], reverse=True)
-        candidate_components = set([label for label,_ in component_sizes[:3]])
+    #     # filter only 3 largest components
+    #     component_sizes = [(label_id, np.count_nonzero(labeled_mask == label_id)) for label_id in range(1, num_obj + 1)]
+    #     component_sizes.sort(key=lambda x: x[1], reverse=True)
+    #     candidate_components = set([label for label,_ in component_sizes[:3]])
 
-        scores = []
-        variances_list = []
-        edges_list = []
-        compactness_list = []
-        label_list = []
-        area_list = []
-        elongation_list = []
+    #     scores = []
+    #     variances_list = []
+    #     edges_list = []
+    #     compactness_list = []
+    #     label_list = []
+    #     area_list = []
+    #     elongation_list = []
 
-        for i in range(num_obj):
-            curr_label = regions[i]
-            if (curr_label.label) not in (candidate_components):
-                continue
-            if (curr_label.area) < 13000:
-                continue
-            # print(curr_label.area)
-            curr_segment = np.zeros_like(segment, dtype=bool)
-            curr_segment[labeled_mask == curr_label.label] = 1
-            mask_img = input_img[curr_segment]
-            area = curr_label.area
-            perimeter = curr_label.perimeter
+    #     for i in range(num_obj):
+    #         curr_label = regions[i]
+    #         if (curr_label.label) not in (candidate_components):
+    #             continue
+    #         if (curr_label.area) < 13000:
+    #             continue
+    #         # print(curr_label.area)
+    #         curr_segment = np.zeros_like(segment, dtype=bool)
+    #         curr_segment[labeled_mask == curr_label.label] = 1
+    #         mask_img = input_img[curr_segment]
+    #         area = curr_label.area
+    #         perimeter = curr_label.perimeter
 
-            variance = np.var(mask_img)
-            variance_ratio = variance / (curr_label.area)
-            compactness = (perimeter ** 2) / area
+    #         variance = np.var(mask_img)
+    #         variance_ratio = variance / (curr_label.area)
+    #         compactness = (perimeter ** 2) / area
 
-            minr, minc, maxr, maxc = curr_label.bbox
-            height = maxr - minr
-            width = maxc - minc
-            bbox_sizes = [height, width]
-            elongation_ratio = max(bbox_sizes) / min(bbox_sizes)
+    #         minr, minc, maxr, maxc = curr_label.bbox
+    #         height = maxr - minr
+    #         width = maxc - minc
+    #         bbox_sizes = [height, width]
+    #         elongation_ratio = max(bbox_sizes) / min(bbox_sizes)
 
-            variances_list.append(variance)
-            elongation_list.append(elongation_ratio)
-            label_list.append(curr_label)
+    #         variances_list.append(variance)
+    #         elongation_list.append(elongation_ratio)
+    #         label_list.append(curr_label)
 
 
-        norm_variance = self._normalize_feature(variances_list)
-        norm_elongation = self._normalize_feature(elongation_list)
-        norm_elongation = [1 - c for c in norm_elongation]
+    #     norm_variance = self._normalize_feature(variances_list)
+    #     norm_elongation = self._normalize_feature(elongation_list)
+    #     norm_elongation = [1 - c for c in norm_elongation]
         
-        scores = []
-        for i in range(len(variances_list)):
+    #     scores = []
+    #     for i in range(len(variances_list)):
 
-            score = norm_variance[i] + norm_elongation[i]
-            scores.append((score, label_list[i]))
+    #         score = norm_variance[i] + norm_elongation[i]
+    #         scores.append((score, label_list[i]))
 
-        scores.sort(key= lambda x: x[0], reverse=True)
-        top_score, fingerprint_label = scores[0]
+    #     scores.sort(key= lambda x: x[0], reverse=True)
+    #     top_score, fingerprint_label = scores[0]
 
-        fingerprint_mask[labeled_mask == fingerprint_label.label] = 1
+    #     fingerprint_mask[labeled_mask == fingerprint_label.label] = 1
         
-        return fingerprint_mask
+    #     return fingerprint_mask
     
     def get_output_img(self):
         return self.output_img
+    
+    def get_output_segment(self):
+        return self.output_segment
+
+
+    def enh_img(self, segment):
+        # labeled_mask = label(segment) 
+        # regions = regionprops(labeled_mask)
+
+
+        # num_obj = len(regions)
+
+        # # filter only n largest components
+        # component_sizes = [(label_id, np.count_nonzero(labeled_mask == label_id)) for label_id in range(1, num_obj + 1)]
+        # component_sizes.sort(key=lambda x: x[1], reverse=True)
+        # candidate_components = set([label for label,_ in component_sizes[:n]])
+
+
+        # curr_segment = np.zeros_like(segment, dtype=bool)
+        # curr_segment[labeled_mask == curr_label.label] = 1
+
+        mask_img = self.filtered_img.copy()
+        mask_img[segment == 1] = self.filtered_img[segment]
+        mask_img[segment == 0] = self.filtered_img.mean()
+        
+        # call model
+        Model = SpectralGaborFilterBankFilter(input_img = mask_img, segment_img= (segment.astype(np.uint8) * 255.0))
+        Model.forward()
+        self.enh_img = Model.get_enh_img()
+
+        # plt.figure()
+        # plt.imshow(mask_img, cmap="gray")
+        # # plt.show()
+        # plt.figure()
+        # plt.imshow(enh_img, cmap="gray")
+        # plt.show()
+
+    def get_enh_img(self):
+        return self.enh_img
+
     
     def _MSER(self, energy_img_list):
         mser = cv.MSER_create()
@@ -320,8 +424,6 @@ class TrackFingerPrint:
             # plt.show()
 
             binary_masks.append(mask)
-
-
 
         radius = 1
         size = 3
@@ -350,17 +452,20 @@ class TrackFingerPrint:
 
 
 
-    
     def forward(self):
         for i in range(len(self.sectors_list)):
-            block_size = 33
+            block_size = 11
             energy = self._find_energy(self.sectors_list[i], block_size=block_size)
+            # lbp_energy = self._lbp(self.sectors_list[i], block_size=block_size)
             self.energy_img_list.append(energy)
-        for th in np.arange(0.7, 0.0, -0.05):
+            # self.energy_img_list.append(lbp_energy)
+
+        for th in np.arange(0.50, 0.0, -0.05):
+            # print(th)
             segment = self._select_fingerprint_area(self.energy_img_list, th=th)
             self.segments.append(segment)
         
-        # mser_segment = self._MSER(self.energy_img_list)
+        # mser_segment = self._MSER(self.new_enerygy_img_list)
         # label_img = label(mser_segment)
         # rgb_img = label2rgb(label_img, bg_label=0)
 
@@ -373,17 +478,20 @@ class TrackFingerPrint:
             # print(j)
             seg1 = self.segments[j]
             seg2 = self.segments[(j + 1)]  
-            diff = self._compare_segments(seg1, seg2)  
+            diff = self._compare_segments(seg1, seg2)
+            # print(j)
+            # print(diff)
             self.differences.append(diff)
         
         max_diff = max(self.differences)
         idx_max_diff = self.differences.index(max_diff)
-        print(f"threshold = {round(0.7 - idx_max_diff * 0.05, 2)}")
+        # print(f"threshold = {round(0.5 - idx_max_diff * 0.05, 2)}")
         selected_segment = self.segments[idx_max_diff]
         fillhole_segment = fillHoles(selected_segment.astype(np.float32))
-        fingerprint_segment = self._select_fingerprint_region(fillhole_segment, self.filtered_img)
-        self.output_img = self.filtered_img * fingerprint_segment
-        self.output_img[fingerprint_segment == 0] = self.filtered_img.mean()
+        # self.output_segment = self._select_fingerprint_region(fillhole_segment, self.filtered_img)
+        self.output_segment = fillhole_segment.copy()
+        self.output_img = self.filtered_img * self.output_segment
+        self.output_img[self.output_segment == 0] = self.filtered_img.mean()
 
         # fillhole_segment = fillHoles(mser_segment.astype(np.float32))
         # fingerprint_segment = self._select_fingerprint_region(fillhole_segment, self.filtered_img)
